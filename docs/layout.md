@@ -6,7 +6,11 @@
   placeholders, and an unfilled one is an error.
 - `src/topa/knowledge/tilelang.md` holds TileLang and ptxas facts that earlier rounds
   confirmed. Rounds read it. People add to it from round reports.
-- `src/topa/kit/container/` holds the agent image: the TileOPs runner image plus sshd.
+- `src/topa/kit/container/` holds the agent image: the TileOPs runner image plus an
+  entrypoint that sets up git, gh and `topa`. The container mounts the host's Claude Code
+  binary, `~/.claude` (its code-carrying parts read-only), herdr's socket, and topa's
+  source, config and ledger.
+- `src/topa/kit/round/pr-template.md` is the PR a round fills in; `topa pr` checks it.
 - `src/topa/kit/stage.py` runs in the agent image, once per image and dependency list. It stages, for offline
   install, the wheels TileFoundry needs beyond the runner and the build backends of
   TileFoundry and TileOPs.
@@ -28,7 +32,6 @@
     stage/<key>/               wheels and build backends a round installs beyond the runner
     tilelang/  triton/         kernel compile caches, shared by all rounds
   checkouts/tilefoundry/<slug>/  the round's TileFoundry checkout
-  ssh/<slug>/  ssh-config/     the round's SSH key and host entry
 <worktree_root>/tileops-<slug>/  the round's TileOPs worktree, on its own branch
 ```
 
@@ -36,10 +39,10 @@ What each step keeps:
 
 | | running | `stop` | `stop --rm` |
 | --- | --- | --- | --- |
-| `rounds/<slug>/`: brief, `work/`, `evidence/`, `report.md`, PR text | yes | yes, plus `session/` (transcripts) and `foundry.patch` if TileFoundry changed | yes |
+| `rounds/<slug>/`: brief, `bin/claude`, `work/`, `evidence/`, `report.md`, `pr-template.md` | yes | yes, plus `session/` (transcripts) and `foundry.patch` if TileFoundry changed | yes |
 | ledger | yes | yes | yes |
 | TileOPs worktree and branch | yes | yes | removed; the branch only if merged |
-| TileFoundry checkout, SSH key and entry | yes | yes | removed |
+| TileFoundry checkout | yes | yes | removed |
 | container and its GPU | running | stopped; GPU free | removed |
 | herdr pane and agent | running | closed | closed |
 

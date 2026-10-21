@@ -47,7 +47,7 @@ def run(config: Config, worktree: Path, command: list[str]) -> int:
         "--env", f"PYTHONPATH={worktree}/src:{worktree}",
         "--env", "TILELANG_CACHE_DIR=/ci-cache/tilelang",
         "--env", "TRITON_CACHE_DIR=/ci-cache/triton",
-        # The image's entrypoint starts sshd for a round; a one-off command needs none.
+        # The image's entrypoint keeps a round's container up; a one-off command needs none.
         "--entrypoint", "",
         config.agent_image, *(command or ["bash"]),
     ]

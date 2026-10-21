@@ -1,15 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-mkdir -p /run/sshd /run/tileops
-chmod 0755 /run/sshd /run/tileops
-[[ -n ${TILEOPS_SSH_PUBLIC_KEY:-} ]] || {
-    echo "TILEOPS_SSH_PUBLIC_KEY is required" >&2
-    exit 2
-}
-printf '%s\n' "$TILEOPS_SSH_PUBLIC_KEY" > /run/tileops/authorized_keys
-chmod 0600 /run/tileops/authorized_keys
-
+# ssh finds its keys through the passwd home, /root, whatever HOME says.
 install -d -m 0700 /root/.ssh
 if [[ -n ${TILEOPS_HOST_SSH_DIR:-} && -d $TILEOPS_HOST_SSH_DIR ]]; then
     for path in "$TILEOPS_HOST_SSH_DIR"/*; do
@@ -41,30 +33,12 @@ if [[ -x /usr/local/bin/gh && -d ${GH_CONFIG_DIR:-} ]]; then
 fi
 chmod 0600 "$git_config"
 
-# sshd constructs a minimal login environment instead of inheriting the
-# container environment. Preserve the compiler, GPU and cache settings that
-# define this round without exposing the SSH key itself.
-environment_file=/root/.ssh/environment
-: >"$environment_file"
-for name in \
-    PATH LD_LIBRARY_PATH LIBRARY_PATH CUDA_HOME CUDA_VERSION CUDA_VISIBLE_DEVICES \
-    NVIDIA_DRIVER_CAPABILITIES NVIDIA_VISIBLE_DEVICES NVCC_THREADS \
-    GIT_CONFIG_GLOBAL GIT_OPTIONAL_LOCKS GH_CONFIG_DIR PYTHONUNBUFFERED \
-    TILEOPS_HOST_SSH_DIR TILEOPS_PHYSICAL_GPU TILEOPS_SAFE_DIRS \
-    TILELANG_CACHE_DIR TILELANG_TMP_DIR TRITON_CACHE_DIR \
-    HTTP_PROXY HTTPS_PROXY ALL_PROXY NO_PROXY \
-    http_proxy https_proxy all_proxy no_proxy; do
-    if [[ -v $name ]]; then
-        value=${!name}
-        [[ "$value" != *$'\n'* ]] || {
-            echo "$name contains a newline and cannot be exported to SSH" >&2
-            exit 2
-        }
-        printf '%s=%s\n' "$name" "$value" >>"$environment_file"
-    fi
-done
-chmod 0600 "$environment_file"
+# topa runs from the host's source, mounted read-only; it has no dependencies.
+if [[ -n ${TOPA_SOURCE:-} ]]; then
+    printf '#!/bin/sh\nPYTHONPATH="%s${PYTHONPATH:+:$PYTHONPATH}" exec python3 -m topa "$@"\n' \
+        "$TOPA_SOURCE" >/usr/local/bin/topa
+    chmod 0755 /usr/local/bin/topa
+fi
 
-ssh-keygen -A >/dev/null 2>&1
-/usr/sbin/sshd -t
-exec /usr/sbin/sshd -D -e
+# The agent enters with docker exec; this process only keeps the container up.
+exec sleep infinity

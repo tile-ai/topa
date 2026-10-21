@@ -64,14 +64,6 @@ class Config:
         return HOME / "rounds"
 
     @property
-    def ssh_config_dir(self) -> Path:
-        return HOME / "ssh-config"
-
-    @property
-    def ssh_key_root(self) -> Path:
-        return HOME / "ssh"
-
-    @property
     def cache(self) -> Path:
         """Long-lived and rebuilt on demand: safe to delete when no round runs."""
         return HOME / "cache"

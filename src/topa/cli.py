@@ -141,12 +141,6 @@ def _pr(args: argparse.Namespace) -> int:
     return 0
 
 
-def _hook(args: argparse.Namespace) -> int:
-    from topa.hook import pre_tool_use
-
-    return pre_tool_use()
-
-
 def _config(args: argparse.Namespace) -> int:
     if args.default:
         print(config_module.default_toml(), end="")
@@ -225,9 +219,6 @@ def parser() -> argparse.ArgumentParser:
     p.add_argument("--no-watch", action="store_true", help="do not wait on the PR checks")
     p.set_defaults(func=_pr)
 
-    hook = sub.add_parser("hook", help="Claude Code hooks").add_subparsers(dest="hook_command", required=True)
-    p = hook.add_parser("pre-tool-use", help="route a round's shell commands into its container")
-    p.set_defaults(func=_hook)
     return top
 
 
