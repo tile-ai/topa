@@ -91,6 +91,14 @@ class GateTests(unittest.TestCase):
     def test_complete_round_passes(self) -> None:
         self.assertEqual(gate.validate_round(self.round, self.repo)["classification"], "improvement without SOTA")
 
+    def test_formula_export_is_allowed(self) -> None:
+        formulas = Path(self.repo, "src/tileops/perf/formulas.py")
+        formulas.parent.mkdir(parents=True)
+        formulas.write_text('__all__ = ["new_op_roofline"]\n')
+        git(self.repo, "add", ".")
+        git(self.repo, "commit", "-qm", "export")
+        gate.validate_round(self.round, self.repo)
+
     def pr(self, edit) -> None:
         """Rewrite the round's filled-in PR template through *edit*."""
         path = self.round / "pr-template.md"

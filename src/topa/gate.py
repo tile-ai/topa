@@ -25,6 +25,8 @@ ALLOWED_CHANGE_ROOTS = (
     "src/tileops/kernels/",
     "src/tileops/manifest/spec/",
     "src/tileops/ops/",
+    # A new op's roofline functions join __all__ here when its entry becomes implemented.
+    "src/tileops/perf/formulas.py",
     "tests/kernels/",
     "tests/ops/",
 )
