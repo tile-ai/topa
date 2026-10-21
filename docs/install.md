@@ -12,5 +12,5 @@ Edit `~/.topa/config.toml` (paths of the TileOPs and TileFoundry checkouts, Dock
 host, GPU), then run `topa setup` again. `topa config` prints the settings in effect.
 `TOPA_<NAME>` in the environment overrides one setting for one command.
 
-It needs `claude`, `docker` with the NVIDIA runtime, `gh` (logged in), `git`, `herdr`,
-`ssh`, `nvidia-smi` and `uv`.
+It needs `claude` (logged in; rounds reuse its login), `docker` with the NVIDIA runtime,
+`gh` (logged in), `git`, `herdr`, `nvidia-smi` and `uv`.

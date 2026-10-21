@@ -77,13 +77,11 @@ The current directory is the round directory. Write production code only in
 
 ## Where commands run
 
-You run on the host, and you read and write files locally. Each shell command goes to the
-round container automatically. `git`, `gh`, `topa`, plain file commands and text tools
-(`grep`, `head`, `tail`, `echo`, ...) stay on the host. A line that runs anything else
-(python, pytest, nvcc, tilefoundry, nvidia-smi) runs in the container as a whole. The
-three directories have the same paths in the container, under both the written and the
-resolved spelling of a symlinked home, so use paths as they are. Do not write `ssh` or
-`docker` commands yourself.
+You run inside the round container, and every command you run runs there: the GPU, CUDA,
+`tilefoundry`, the editable `tileops`, `git`, `gh` and `topa`. `git` and `gh` use the
+host's credentials, mounted read-only. The round directory, the TileOPs worktree and the
+TileFoundry source have the same paths as on the host, so use paths as they are. There is
+no Docker inside the container, and you need none.
 
 ## TileFoundry source
 
@@ -158,19 +156,19 @@ Use this form for the commit title, and for the PR title on the first line of
 [Perf][foundry][<Scope>] <Imperative description of the kernel change>
 ```
 
-After the commit, run `{{TOPA}} pr`.
+After the commit, run `topa pr`.
 
 - The first call runs the artifact gate and stops for a semantic self-check. Read the
   actual final HIR, the analyze and measurement evidence and the production diff again,
   and only then run the second command.
-- To check the artifacts only, run `{{TOPA}} gate`.
+- To check the artifacts only, run `topa gate`.
 - Do not call `gh pr create` or `gh pr edit` to go around it.
 - Use the global Git identity and add no other authorship. `topa pr` pushes to the fork
   and opens the PR. Do not merge. Continue to handle CI and review.
 
 ```bash
-{{TOPA}} pr
-{{TOPA}} pr --reviewed
+topa pr
+topa pr --reviewed
 ```
 
 When the base moves, rebase, verify again and push with `--force-with-lease`. With

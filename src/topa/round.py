@@ -1,9 +1,10 @@
 """`topa round`: start, steer, inspect and stop one agent working one issue.
 
 A round owns five things: a TileOPs worktree on its own branch, a herdr workspace
-whose pane runs the agent, a detached TileFoundry checkout, a container with one
-GPU, and its round directory under `~/.topa/rounds/<slug>/`. `round.json` in that
-directory names all of them; the ledger records what happened to them.
+whose pane shows the agent, a detached TileFoundry checkout, a container with one
+GPU in which the agent runs, and its round directory under `~/.topa/rounds/<slug>/`.
+`round.json` in that directory names all of them; the ledger records what happened
+to them.
 """
 
 from __future__ import annotations
@@ -13,7 +14,6 @@ import json
 import re
 import shlex
 import shutil
-import sys
 import time
 from dataclasses import dataclass
 from importlib.resources import files
@@ -36,14 +36,6 @@ def kit() -> Path:
 
 def knowledge() -> Path:
     return Path(str(files("topa") / "knowledge" / "tilelang.md"))
-
-
-def topa_binary() -> Path:
-    """The `topa` of this install, by absolute path: the round's hook and brief call it."""
-    path = Path(sys.executable).parent / "topa"
-    if not path.exists():
-        raise SystemExit(f"{path} does not exist; install topa with `uv pip install -e .`")
-    return path
 
 
 def render(template: str, values: dict[str, Any]) -> str:
@@ -126,10 +118,13 @@ def submit(pane: str, text: str, *, tries: int = 3, settle: float = 1.5) -> bool
 
 
 def _cd_pane(pane: str, path: Path) -> None:
+    """Enter the round directory, with its `bin/claude` ahead of the host's on PATH."""
     marker = f"topa-ready-{time.time_ns()}"
     half = len(marker) // 2
+    where = shlex.quote(str(path))
     sh.herdr("pane", "run", pane,
-             f"cd {shlex.quote(str(path))} && printf '%s%s\\n' {marker[:half]} {marker[half:]}")
+             f'export PATH={where}/bin:"$PATH" && cd {where} '
+             f"&& printf '%s%s\\n' {marker[:half]} {marker[half:]}")
     sh.run(["herdr", "pane", "wait-output", pane, "--source", "recent-unwrapped",
             "--match", marker, "--timeout", "30000"])
 
@@ -137,26 +132,20 @@ def _cd_pane(pane: str, path: Path) -> None:
 # --- start --------------------------------------------------------------------------
 
 
-def _write_round_dir(config: Config, path: Path, values: dict[str, Any], topa: Path) -> None:
+def _write_round_dir(config: Config, path: Path, values: dict[str, Any]) -> None:
     shutil.copytree(kit(), path, dirs_exist_ok=True,
                     ignore=shutil.ignore_patterns("brief.md", "__pycache__"))
     brief = render((kit() / "brief.md").read_text(), values)
     (path / "brief.md").write_text(brief)
     claude = path / ".claude"
     claude.mkdir(exist_ok=True)
-    settings = {
-        "model": config.model,
-        "hooks": {"PreToolUse": [{"matcher": "Bash", "hooks": [
-            {"type": "command", "command": f"{shlex.quote(str(topa))} hook pre-tool-use", "timeout": 10},
-        ]}]},
-    }
+    settings = {"model": config.model}
     (claude / "settings.json").write_text(json.dumps(settings, indent=2) + "\n")
 
 
 def _environment(meta: dict[str, Any], warning: str | None, mismatched: list[str]) -> str:
     rows = [
         ("container", meta["container"]),
-        ("ssh alias", meta["alias"]),
         ("physical GPU", meta["gpu"]),
         ("TileOPs worktree", meta["worktree"]),
         ("TileFoundry source", meta["foundry_source"]),
@@ -173,7 +162,7 @@ def _environment(meta: dict[str, Any], warning: str | None, mismatched: list[str
 
 
 def start(config: Config, number: int, *, dry_run: bool = False, force: bool = False) -> dict[str, Any]:
-    sh.require("claude", "docker", "gh", "git", "herdr", "ssh", "ssh-keygen", "nvidia-smi")
+    sh.require("claude", "docker", "gh", "git", "herdr", "nvidia-smi")
     views = ledger.rounds()
     live = [view["round"] for view in views.values() if view["state"] in ledger.LIVE]
     if len(live) >= config.max_rounds and not force:
@@ -190,7 +179,6 @@ def start(config: Config, number: int, *, dry_run: bool = False, force: bool = F
     branch = branch_name(issue, slug, op_family(config.tileops_repo, f"{remote}/main", issue.title))
     worktree = config.worktree_root / f"tileops-{slug}"
     round_dir = config.rounds / slug
-    topa = topa_binary()
     plan = {"round": slug, "issue": number, "title": issue.title, "branch": branch,
             "worktree": str(worktree), "round_dir": str(round_dir)}
     if dry_run:
@@ -222,9 +210,9 @@ def start(config: Config, number: int, *, dry_run: bool = False, force: bool = F
             "SLUG": slug, "ISSUE": number, "ISSUE_URL": issue.url, "ISSUE_TITLE": issue.title,
             "UPSTREAM": config.upstream, "BRANCH": branch, "TILEOPS_BASE": tileops_base,
             "TILEOPS_WORKTREE": worktree, "TILEFOUNDRY_BASE": prepared.commit,
-            "TILEFOUNDRY_SOURCE": source, "KNOWLEDGE": knowledge(), "TOPA": topa,
+            "TILEFOUNDRY_SOURCE": source, "KNOWLEDGE": knowledge(),
         }
-        _write_round_dir(config, round_dir, values, topa)
+        _write_round_dir(config, round_dir, values)
 
         sh.note("starting the container")
         started = container.start(config, slug=slug, worktree=worktree, round_dir=round_dir,
@@ -237,7 +225,7 @@ def start(config: Config, number: int, *, dry_run: bool = False, force: bool = F
         meta = {
             **plan, "issue_url": issue.url, "upstream": config.upstream,
             "tileops_base": tileops_base, "tilefoundry_base": prepared.commit,
-            "foundry_source": str(source), "container": started.name, "alias": started.alias,
+            "foundry_source": str(source), "container": started.name,
             "gpu": started.gpu, "image": started.image, "workspace": workspace, "pane": pane,
             "model": config.model, "effort": config.effort,
             "brief_sha256": hashlib.sha256((round_dir / "brief.md").read_bytes()).hexdigest(),
@@ -247,6 +235,10 @@ def start(config: Config, number: int, *, dry_run: bool = False, force: bool = F
         (round_dir / "environment.md").write_text(_environment(meta, started.gpu_warning, prepared.report["mismatched"]))
 
         sh.note(f"starting the agent in {pane}")
+        wrapper = round_dir / "bin" / "claude"
+        wrapper.parent.mkdir(exist_ok=True)
+        wrapper.write_text(container.agent_wrapper(config, started.name))
+        wrapper.chmod(0o755)
         _cd_pane(pane, round_dir)
         sh.herdr("agent", "start", slug, "--kind", "claude", "--pane", pane, "--timeout", "60000",
                  "--", "--dangerously-skip-permissions", "--model", config.model, "--effort", config.effort)
@@ -376,8 +368,6 @@ def stop(config: Config, slug: str, *, remove: bool = False) -> list[str]:
     removed = container.remove(config, slug)
     if removed:
         done.append(f"removed {len(removed)} container(s)")
-    (config.ssh_config_dir / container.alias(slug)).unlink(missing_ok=True)
-    shutil.rmtree(config.ssh_key_root / slug, ignore_errors=True)
     if meta.get("foundry_source"):
         foundry.remove_source(config, Path(meta["foundry_source"]))
         done.append("removed the TileFoundry checkout")

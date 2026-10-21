@@ -2,7 +2,7 @@
 
 | Command | Does |
 | --- | --- |
-| `topa setup` | check tools, build `topa:agent`, include the round SSH entries |
+| `topa setup` | check tools, build `topa:agent`, trust the round directories in Claude Code |
 | `topa grade` | grade every op of the newest nightly |
 | `topa hunt` | the behind ops, their issues, assignees and rounds |
 | `topa issue new <Op>...` | file or claim one issue per op |

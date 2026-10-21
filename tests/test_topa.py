@@ -5,11 +5,13 @@ import re
 import subprocess
 import tempfile
 import unittest
+from dataclasses import replace
 from pathlib import Path
+from unittest import mock
 
-from topa import gate, ledger
+from topa import config as config_module
+from topa import container, gate, ledger
 from topa.grade import BEHIND, grade_op, parse
-from topa.hook import decide
 from topa.issue import Issue, branch_name, round_slug
 from topa.round import kit, render
 
@@ -133,30 +135,36 @@ class GateTests(unittest.TestCase):
                     gate.validate_round(self.round, self.repo)
 
 
-class HookTests(unittest.TestCase):
-    def test_routing(self) -> None:
+class ContainerTests(unittest.TestCase):
+    def test_wrapper_stays_the_claude_herdr_sees(self) -> None:
+        config = replace(config_module.load(), docker_host="unix:///run/user/1/docker.sock")
+        script = container.agent_wrapper(config, "topa-i1-r1")
+        self.assertTrue(script.startswith("#!/bin/bash\n"))
+        self.assertIn("export DOCKER_HOST=unix:///run/user/1/docker.sock", script)
+        last = script.strip().splitlines()[-1]
+        # herdr names a pane's agent by its foreground process: no exec, or docker replaces it.
+        self.assertTrue(last.startswith("docker exec --interactive --tty "), last)
+        for name in container.HERDR_ENV:
+            self.assertIn(f"--env {name} ", last)
+        self.assertTrue(last.endswith('--workdir "$PWD" topa-i1-r1 claude "$@"'), last)
+
+    def test_agent_shares_claude_state_but_not_its_code(self) -> None:
         with tempfile.TemporaryDirectory() as folder:
-            round_dir = Path(folder)
-            (round_dir / "round.json").write_text('{"alias": "topa-i1-r1"}')
-            event = lambda command: {"tool_input": {"command": command}, "cwd": folder}
-            for command in (
-                "git status && ls",
-                "/x/.venv/bin/topa pr --reviewed",
-                'gh issue view 1 2>&1 | head -300; echo "rc=$?"',
-                'cd /x && grep -n "hir\\|iteration" gate.py | head -60',
-                "git log --oneline\ncat notes.md > /dev/null 2>&1",
-            ):
-                self.assertIsNone(decide(event(command), round_dir), command)
-            for command in (
-                "cd work && pytest -x",
-                "python run.py | head",
-                "ls\npython run.py",
-                "git status; nvidia-smi &",
-                "echo 'unbalanced",
-            ):
-                routed = decide(event(command), round_dir)
-                assert routed is not None, command
-                self.assertTrue(routed["hookSpecificOutput"]["updatedInput"]["command"].startswith("ssh -T topa-i1-r1 "))
+            home = Path(folder)
+            (home / ".claude" / "hooks").mkdir(parents=True)
+            (home / ".claude" / "settings.json").write_text("{}")
+            with mock.patch("shutil.which", return_value="/usr/bin/true"):
+                mounts, env, _ = container._agent(home)
+            volumes = [mounts[i + 1] for i in range(0, len(mounts), 2)]
+            claude = home / ".claude"
+            self.assertIn(f"{claude}:{claude}", volumes)
+            self.assertIn(f"{claude / 'settings.json'}:{claude / 'settings.json'}:ro", volumes)
+            self.assertIn(f"{claude / 'hooks'}:{claude / 'hooks'}:ro", volumes)
+            # Only what exists is mounted read-only over the shared directory.
+            self.assertFalse(any("plugins" in volume for volume in volumes))
+            self.assertIn("/usr/bin/true:/usr/local/bin/claude:ro", volumes)
+            self.assertIn(f"HOME={home}", env)
+            self.assertIn("IS_SANDBOX=1", env)
 
 
 class GradeTests(unittest.TestCase):

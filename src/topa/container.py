@@ -1,27 +1,36 @@
-"""The per-round container: the CUDA stack, one GPU, and an SSH door for commands.
+"""The per-round container: the CUDA stack, one GPU, and the agent itself.
 
-The agent runs on the host. Only execution needs the container, so the round
-directory, the TileOPs worktree and the TileFoundry source are mounted at the paths
-they have on the host, and a command carries over unchanged.
+Claude Code runs inside the container, so every command it runs has the CUDA stack, the
+GPU and the installed tilefoundry and tileops. The round directory, the TileOPs worktree
+and the TileFoundry source are mounted at the paths they have on the host, and so is the
+user's Claude Code state: the agent reuses this machine's login and settings, and its
+transcripts land where they land for any other session.
 """
 
 from __future__ import annotations
 
 import hashlib
 import os
+import shlex
 import shutil
 import time
 from dataclasses import dataclass
+from importlib.resources import files
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from topa import gpu, sh
-from topa.config import Config
+from topa import gpu, ledger, sh
+from topa.config import CONFIG, Config
 
 if TYPE_CHECKING:
     from topa.foundry import Prepared
 
 PROXY_NAMES = ("HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY", "http_proxy", "https_proxy", "all_proxy")
+# What in ~/.claude carries code the host runs (hooks, plugins, a status line, skills):
+# the agent reads it from the container but cannot change it.
+CLAUDE_READ_ONLY = ("settings.json", "hooks", "plugins", "skills", "agents", "commands", "CLAUDE.md")
+# herdr's pane identity, which its Claude Code hook reports back through the socket.
+HERDR_ENV = ("HERDR_ENV", "HERDR_SOCKET_PATH", "HERDR_PANE_ID", "HERDR_TAB_ID", "HERDR_WORKSPACE_ID")
 
 
 @dataclass(frozen=True)
@@ -30,9 +39,6 @@ class Started:
     gpu: int
     gpu_warning: str | None
     image: str
-    port: int
-    alias: str
-    key: Path
 
 
 def _sha(*parts: object) -> str:
@@ -40,10 +46,6 @@ def _sha(*parts: object) -> str:
 
 
 def name(slug: str) -> str:
-    return f"topa-{slug}"
-
-
-def alias(slug: str) -> str:
     return f"topa-{slug}"
 
 
@@ -67,11 +69,56 @@ def _auth(worktree_git: Path) -> tuple[list[str], list[str], tuple[object, ...]]
     return mounts, env, (worktree_git, git_config, gh_config, gh_bin, ssh_dir)
 
 
+def _agent(home: Path) -> tuple[list[str], list[str], tuple[object, ...]]:
+    """The host's Claude Code with its login and settings, herdr's socket, and topa.
+
+    `~/.claude` is shared, not copied: a token one session refreshes is the token every
+    session reads, as for two sessions on the host. topa runs from its own source with the
+    host's config and ledger, so `topa pr` works from inside the round.
+    """
+    claude_dir = home / ".claude"
+    claude_bin = shutil.which("claude")
+    if not claude_dir.is_dir() or not claude_bin:
+        raise SystemExit("Claude Code is not set up on this host: run `claude` once and log in")
+    mounts = ["--volume", f"{claude_dir}:{claude_dir}"]
+    for name in CLAUDE_READ_ONLY:
+        if (claude_dir / name).exists():
+            mounts += ["--volume", f"{claude_dir / name}:{claude_dir / name}:ro"]
+    mounts += ["--volume", f"{Path(claude_bin).resolve()}:/usr/local/bin/claude:ro"]
+    socket = Path(os.environ.get("HERDR_SOCKET_PATH") or home / ".config" / "herdr" / "herdr.sock")
+    if socket.exists():
+        mounts += ["--volume", f"{socket.resolve()}:{socket}"]
+    topa_source = Path(str(files("topa"))).parent
+    mounts += ["--volume", f"{topa_source}:{topa_source}:ro",
+               "--volume", f"{CONFIG}:{CONFIG}:ro",
+               "--volume", f"{ledger.LEDGER}:{ledger.LEDGER}"]
+    env = ["--env", f"HOME={home}", "--env", f"TOPA_SOURCE={topa_source}",
+           # Claude Code refuses to skip permissions as root unless it is told it is sandboxed.
+           "--env", "IS_SANDBOX=1",
+           # The binary is the host's, mounted read-only; the host updates it.
+           "--env", "DISABLE_AUTOUPDATER=1"]
+    return mounts, env, (claude_dir, claude_bin, socket, topa_source)
+
+
+def agent_wrapper(config: Config, container: str) -> str:
+    """A `claude` for the round's pane, which runs Claude Code inside *container*.
+
+    herdr tells which agent a pane runs from its foreground process, so this script stays
+    that process, named claude, and runs `docker exec` as a child rather than exec-ing it.
+    """
+    lines = ["#!/bin/bash", "# Claude Code inside the round container; written by topa round start."]
+    if config.docker_host:
+        lines.append(f"export DOCKER_HOST={shlex.quote(config.docker_host)}")
+    passed = " ".join(f"--env {name}" for name in HERDR_ENV)
+    lines.append(f'docker exec --interactive --tty {passed} --workdir "$PWD" {container} claude "$@"')
+    return "\n".join(lines) + "\n"
+
+
 def _spellings(*paths: Path) -> list[Path]:
     """Each path, then its resolved form where a symlink makes the two differ.
 
-    Claude Code reports the resolved working directory, so on a host where the home
-    directory is a symlink the agent names the resolved form as often as the written one.
+    herdr and git report the resolved form of a path under a symlinked home, so a path
+    the agent is handed may take either form.
     """
     out = []
     for path in paths:
@@ -115,22 +162,16 @@ def start(
     image = sh.docker(config, "image", "inspect", config.agent_image, "--format", "{{.Id}}")
     worktree_git = Path(sh.run(["git", "-C", worktree, "rev-parse", "--path-format=absolute", "--git-common-dir"]))
 
-    key_dir = config.ssh_key_root / slug
-    key_dir.mkdir(parents=True, exist_ok=True)
-    key_dir.chmod(0o700)
-    key = key_dir / "id_ed25519"
-    if not key.exists():
-        sh.run(["ssh-keygen", "-q", "-t", "ed25519", "-N", "", "-f", key])
-    public_key = key.with_suffix(".pub").read_text().strip()
-
     tilelang_cache = config.cache / "tilelang"
     triton_cache = config.cache / "triton"
     for cache in (tilelang_cache, triton_cache):
         cache.mkdir(parents=True, exist_ok=True)
 
+    home = Path.home()
     auth_mounts, auth_env, auth_parts = _auth(worktree_git)
+    agent_mounts, agent_env, agent_parts = _agent(home)
     proxy_env_args = proxy_env(config)
-    auth_key = _sha(foundry_git, *auth_parts, *proxy_env_args)
+    auth_key = _sha(foundry_git, *auth_parts, *agent_parts, *proxy_env_args)
 
     choice: gpu.Choice | None = None
     exists = sh.docker_ok(config, "container", "inspect", container)
@@ -158,7 +199,6 @@ def start(
             "--label", f"topa.gpu={chosen.index}",
             "--add-host", "host.docker.internal:host-gateway",
             "--runtime=nvidia", "--ipc=host", "--shm-size=16g",
-            "--publish", "127.0.0.1::22",
             *[arg for host in (worktree, round_dir, foundry_source, foundry_git)
               for path in _spellings(host) for arg in ("--volume", f"{host}:{path}")],
             "--volume", f"{foundry.stage / 'wheels'}:/opt/topa/wheels:ro",
@@ -166,8 +206,8 @@ def start(
             "--volume", f"{tilelang_cache}:/ci-cache/tilelang",
             "--volume", f"{triton_cache}:/ci-cache/triton",
             *auth_mounts,
+            *agent_mounts,
             "--workdir", str(round_dir),
-            "--env", f"TILEOPS_SSH_PUBLIC_KEY={public_key}",
             "--env", f"NVIDIA_VISIBLE_DEVICES={chosen.index}",
             "--env", "NVIDIA_DRIVER_CAPABILITIES=compute,utility",
             "--env", "CUDA_VISIBLE_DEVICES=0",
@@ -180,6 +220,7 @@ def start(
             "--env", "TILELANG_TMP_DIR=/ci-cache/tilelang/tmp",
             "--env", "TRITON_CACHE_DIR=/ci-cache/triton",
             *auth_env,
+            *agent_env,
             *proxy_env_args,
             config.agent_image,
         )
@@ -192,41 +233,29 @@ def start(
         _install(config, container, worktree, foundry_source)
         sh.docker(config, "exec", container, "touch", marker)
 
-    ports = sh.docker(config, "port", container, "22/tcp")
-    port = int(ports.splitlines()[0].rsplit(":", 1)[1])
-    host_alias = alias(slug)
-    config.ssh_config_dir.mkdir(parents=True, exist_ok=True)
-    entry = config.ssh_config_dir / host_alias
-    entry.write_text(
-        f"Host {host_alias}\n"
-        "    HostName 127.0.0.1\n"
-        "    User root\n"
-        f"    Port {port}\n"
-        f"    IdentityFile {key}\n"
-        "    IdentitiesOnly yes\n"
-        "    BatchMode yes\n"
-        "    StrictHostKeyChecking no\n"
-        "    UserKnownHostsFile /dev/null\n"
-        "    LogLevel ERROR\n"
-    )
-    entry.chmod(0o600)
+    # Claude Code's own state file is per container: it holds the folders a session
+    # trusted and other UI state, and the host's copy already trusts the rounds root.
+    claude_state = home / ".claude.json"
+    if claude_state.is_file():
+        sh.docker(config, "cp", claude_state, f"{container}:{claude_state}")
 
     probe = ('test "$CUDA_HOME" = /usr/local/cuda && test "$(command -v nvcc)" = /usr/local/cuda/bin/nvcc '
-             f'&& test "$TILELANG_CACHE_DIR" = /ci-cache/tilelang && git -C {worktree} status --short >/dev/null')
+             f'&& test "$TILELANG_CACHE_DIR" = /ci-cache/tilelang && git -C {worktree} status --short >/dev/null '
+             '&& claude --version >/dev/null && topa --help >/dev/null')
     for _ in range(100):
-        if sh.ok(["ssh", host_alias, probe]):
+        if sh.docker_ok(config, "exec", container, "bash", "-c", probe):
             break
         time.sleep(0.1)
     else:
-        raise SystemExit(f"the SSH environment of {container} did not become ready")
+        raise SystemExit(f"the environment of {container} did not become ready")
 
-    if shutil.which("gh") and (Path.home() / ".config" / "gh").is_dir():
+    if shutil.which("gh") and (home / ".config" / "gh").is_dir():
         check = ('gh auth status --hostname github.com >/dev/null 2>&1 && printf "protocol=https\\n'
                  'host=github.com\\n\\n" | git credential fill | grep -q "^password="')
-        if not sh.ok(["ssh", host_alias, check]):
+        if not sh.docker_ok(config, "exec", container, "bash", "-c", check):
             raise SystemExit("the mounted GitHub credentials are not usable inside the container")
 
-    return Started(container, choice.index, choice.warning, image, port, host_alias, key)
+    return Started(container, choice.index, choice.warning, image)
 
 
 def _install(config: Config, container: str, worktree: Path, foundry_source: Path) -> None:

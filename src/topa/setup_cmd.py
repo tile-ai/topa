@@ -1,8 +1,8 @@
 """`topa setup`: the one-time machine setup a round relies on.
 
 It checks the tools, starts the rootless Docker daemon if one is configured,
-builds the agent image on the TileOPs runner image, and makes `~/.ssh/config`
-include the per-round SSH entries topa writes.
+builds the agent image on the TileOPs runner image, and lets Claude Code trust the
+round directories.
 """
 
 from __future__ import annotations
@@ -20,14 +20,12 @@ from topa.config import Config
 
 def setup(config: Config) -> list[str]:
     done = []
-    sh.require("claude", "docker", "gh", "git", "herdr", "ssh", "ssh-keygen", "nvidia-smi")
+    sh.require("claude", "docker", "gh", "git", "herdr", "nvidia-smi")
     for repo in (config.tileops_repo, config.tilefoundry_repo):
         if not (repo / ".git").exists():
             raise SystemExit(f"not a git checkout: {repo}")
-    for path in (config_module.HOME, config.rounds, config.ssh_config_dir, config.ssh_key_root,
-                 config.worktree_root):
+    for path in (config_module.HOME, config.rounds, config.worktree_root):
         path.mkdir(parents=True, exist_ok=True)
-    config.ssh_key_root.chmod(0o700)
     if not config_module.CONFIG.exists():
         config_module.CONFIG.write_text(config_module.default_toml())
         done.append(f"wrote {config_module.CONFIG}")
@@ -41,20 +39,6 @@ def setup(config: Config) -> list[str]:
               "--tag", config.agent_image, context)
     done.append(f"built {config.agent_image} on {config.runner_image}")
 
-    ssh_dir = Path.home() / ".ssh"
-    ssh_dir.mkdir(mode=0o700, exist_ok=True)
-    ssh_dir.chmod(0o700)
-    include = f'Include "{config.ssh_config_dir}/*"'
-    ssh_config = ssh_dir / "config"
-    current = ssh_config.read_text() if ssh_config.exists() else ""
-    if include not in current.splitlines():
-        # Include must come before any Host block, or it applies only inside the last one.
-        handle, tmp = tempfile.mkstemp(dir=ssh_dir, prefix="config.")
-        with os.fdopen(handle, "w") as out:
-            out.write(include + "\n" + current)
-        os.chmod(tmp, 0o600)
-        os.replace(tmp, ssh_config)
-        done.append(f"added {include} to {ssh_config}")
     if trust_rounds(config.rounds):
         done.append(f"marked {config.rounds} as trusted in ~/.claude.json")
     return done
