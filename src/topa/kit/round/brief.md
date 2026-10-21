@@ -66,8 +66,10 @@ The current directory is the round directory. Write production code only in
 - When the operator of the issue already has a `spec-only` entry and an Op with no
   kernel, make exactly these changes to them: register your kernel in the Op's
   `kernel_types` and its interface in `interfaces`, set the entry's `status` to
-  `implemented`, and register the Op in `tests/ops/test_compile_boundary.py`. The tests
-  and the benchmark skip while the Op has no kernel and run after you register it.
+  `implemented`, register the Op in `tests/ops/test_compile_boundary.py`, and add the
+  roofline functions its entry names to `__all__` in `src/tileops/perf/formulas.py`
+  (an implemented entry needs them exported). The tests and the benchmark skip while the
+  Op has no kernel and run after you register it.
 - C++/CUDA that TileLang cannot generate, or that you write or rewrite by hand, goes in
   `src/tileops/csrc/`. The kernel includes it with `tileops._csrc.csrc_include(...)`, like
   the existing `fp8_gqa_helper.h`.
