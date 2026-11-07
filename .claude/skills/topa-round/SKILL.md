@@ -29,7 +29,7 @@ Run `topa` from `PATH`. State lives in `~/.topa/`:
 - Change the brief templates (`~/topa/src/topa/kit/round/`) for future rounds,
   never a running round's `brief.md`. To reach a running round, use `say`.
 - `stop` without `--rm` stops the agent and the container (the GPU is free) and archives
-  the Claude transcripts into `rounds/<slug>/session/`. The worktree, the branch and the
+  the agent's session transcripts into `rounds/<slug>/session/`. The worktree, the branch and the
   round directory stay.
 - `stop --rm` also removes the container, the TileOPs worktree, the TileFoundry checkout
   and the merged branch. Ask the user before `--rm` on a round whose PR is open.

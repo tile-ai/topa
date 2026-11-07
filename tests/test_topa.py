@@ -275,11 +275,11 @@ class HookTests(unittest.TestCase):
     def test_configured_reviewer_runs_on_the_host(self) -> None:
         with tempfile.TemporaryDirectory() as folder:
             round_dir = Path(folder)
-            (round_dir / "round.json").write_text('{"alias": "topa-x-r1", "reviewer": "claude"}')
+            (round_dir / "round.json").write_text('{"alias": "topa-x-r1", "reviewer": "review-agent"}')
             event = lambda command: {"tool_input": {"command": command}, "cwd": folder}
             review = '"review" < /dev/null > evidence/review-1.md 2>&1'
-            self.assertIsNone(decide(event(f"cd /wt && /opt/bin/claude -p --allowedTools=Read {review}"), round_dir))
-            self.assertIsNotNone(decide(event(f"codex exec {review}"), round_dir))
+            self.assertIsNone(decide(event(f"cd /wt && /opt/bin/review-agent --read-only {review}"), round_dir))
+            self.assertIsNotNone(decide(event(f"other-agent {review}"), round_dir))
 
     def test_routing(self) -> None:
         with tempfile.TemporaryDirectory() as folder:

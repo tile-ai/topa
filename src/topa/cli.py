@@ -208,7 +208,7 @@ def parser() -> argparse.ArgumentParser:
     p.add_argument("pr", type=int)
     p.set_defaults(func=_review_post)
 
-    hook = sub.add_parser("hook", help="Claude Code hooks").add_subparsers(dest="hook_command", required=True)
+    hook = sub.add_parser("hook", help="round agent hooks").add_subparsers(dest="hook_command", required=True)
     p = hook.add_parser("pre-tool-use", help="route a round's shell commands into its container")
     p.set_defaults(func=_hook)
     return top
