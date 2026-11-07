@@ -20,12 +20,12 @@ from topa.config import Config
 
 def setup(config: Config) -> list[str]:
     done = []
-    sh.require("claude", config.reviewer_program, "docker", "gh", "git", "herdr", "ssh", "ssh-keygen", "nvidia-smi")
     # Write the config first, so a first run that stops below leaves a file to edit.
     config_module.HOME.mkdir(parents=True, exist_ok=True)
     if not config_module.CONFIG.exists():
         config_module.CONFIG.write_text(config_module.default_toml())
         print(f"wrote {config_module.CONFIG}")  # now, in case a check below stops setup
+    sh.require("claude", config.reviewer_program, "docker", "gh", "git", "herdr", "ssh", "ssh-keygen", "nvidia-smi")
     for repo in (config.tileops_repo, config.tilefoundry_repo):
         if not (repo / ".git").exists():
             raise SystemExit(f"not a git checkout: {repo}; set tileops_repo and tilefoundry_repo "

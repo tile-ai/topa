@@ -1,11 +1,11 @@
 """Choosing the one GPU a round runs on.
 
-Never usable: the cards in `gpu_exclude` (the TileFoundry CI runner's) and any card
-in Exclusive_Process mode, which is first come first served. Avoided when there is a
-choice: a card another of our rounds holds -- between kernels it shows no memory and
-no process -- and a card another user computes on. A round never waits for a card:
-its early phases need no GPU, so when every usable card is shared it takes one and
-says so, and the timings show whether that mattered.
+Never usable: the cards in `gpu_exclude` and any card in Exclusive_Process mode,
+which is first come first served. Avoided when there is a choice: a card another of
+our rounds holds -- between kernels it shows no memory and no process -- and a card
+another user computes on. A round never waits for a card: its early phases need no
+GPU, so when every usable card is shared it takes one and says so, and the timings
+show whether that mattered.
 """
 
 from __future__ import annotations

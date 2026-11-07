@@ -23,18 +23,18 @@ DEFAULTS: dict[str, Any] = {
     "runner_image": "ghcr.io/tile-ai/tileops-dev:cuda13.2-torch2.13-tilelang0.1.12",
     "agent_image": "topa:agent",
     "gpu": None,
-    "gpu_exclude": [4, 5],
+    "gpu_exclude": [],
     "docker_host": None,
     "docker_bootstrap": None,
     "proxy_host": "10.0.2.2",
-    "no_proxy": "localhost,127.0.0.1,pypi.org,files.pythonhosted.org,download.pytorch.org",
+    "no_proxy": "localhost,127.0.0.1",
     "upstream": "tile-ai/TileOPs",
     "fork_owner": None,
     # Unset, the round agent runs its own default model.
     "model": None,
     "effort": "high",
     # Runs on the host from the TileOPs worktree; see docs/usage.md.
-    "reviewer": "codex exec --sandbox read-only",
+    "reviewer": None,
     "tilefoundry_commit": None,
     "max_rounds": 2,
 }
@@ -58,13 +58,15 @@ class Config:
     fork_owner: str | None
     model: str | None
     effort: str
-    reviewer: str
+    reviewer: str | None
     tilefoundry_commit: str | None
     max_rounds: int
 
     @property
     def reviewer_program(self) -> str:
         """The executable the `reviewer` command runs, as written there."""
+        if not self.reviewer:
+            raise SystemExit(f"set reviewer in {CONFIG}; see docs/usage.md")
         return shlex.split(self.reviewer)[0]
 
     @property

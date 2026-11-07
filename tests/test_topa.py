@@ -20,7 +20,7 @@ PAGE_URL = "https://github.com/tile-ai/TileOPs/wiki/Perf-Tracker-2026-11-06"
 
 def defaults(**changes) -> config.Config:
     values = {name: config._coerce(name, value) for name, value in config.DEFAULTS.items()}
-    return config.Config(**{**values, **changes})
+    return config.Config(**{**values, "reviewer": "review-agent", **changes})
 
 
 def page(text: str | None = None) -> wiki.Page:
@@ -292,7 +292,6 @@ class HookTests(unittest.TestCase):
                 'gh issue view 1 2>&1 | head -300; echo "rc=$?"',
                 'cd /x && grep -n "hir\\|iteration" gate.py | head -60',
                 "git log --oneline\ncat notes.md > /dev/null 2>&1",
-                'codex exec --sandbox read-only "review" < /dev/null > evidence/review-1.md 2>&1',
             ):
                 self.assertIsNone(decide(event(command), round_dir), command)
             for command in (

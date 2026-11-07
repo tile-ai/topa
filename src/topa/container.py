@@ -89,8 +89,6 @@ def proxy_env(config: Config) -> list[str]:
         if value:
             value = value.replace("127.0.0.1", config.proxy_host).replace("localhost", config.proxy_host)
             env += ["--env", f"{var}={value}"]
-    # These reach this machine faster without the proxy: 54 MB/s direct against
-    # 1.4 MB/s proxied for files.pythonhosted.org.
     for var in ("NO_PROXY", "no_proxy"):
         env += ["--env", f"{var}={config.no_proxy}"]
     return env
