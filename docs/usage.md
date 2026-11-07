@@ -37,7 +37,12 @@ mkdir -p ~/.topa && topa config --default > ~/.topa/config.toml
 ```
 
 Set `tileops_repo`, `tilefoundry_repo`, `worktree_root` and `fork_owner` in that file, and
-`gpu_exclude` to the cards topa must not use. A config file from an older topa fails to
+`gpu_exclude` to the cards topa must not use. `reviewer` is the command a round runs on
+the host, from the TileOPs worktree, to review its diff: it starts a fresh session apart
+from the round agent, cannot write, takes the prompt as its last argument and prints the
+review. The default is Codex; with Claude Code, set
+`reviewer = "claude -p --allowedTools=Read,Grep,Glob,Bash(git diff:*),Bash(git log:*),Bash(git show:*)"`.
+A config file from an older topa fails to
 load until you delete its `tracker` line. Then:
 
 ```bash

@@ -347,7 +347,7 @@ def start(config: Config, name: str | None = None, *, issue: int | None = None, 
             "tileops_base": tileops_base, "tilefoundry_base": prepared.commit,
             "foundry_source": str(source), "container": started.name, "alias": started.alias,
             "gpu": started.gpu, "image": started.image, "workspace": workspace, "pane": pane,
-            "model": config.model, "effort": config.effort, "reviewer": config.reviewer_program,
+            "model": config.model, "effort": config.effort, "reviewer": Path(config.reviewer_program).name,
             "brief_sha256": hashlib.sha256((round_dir / "brief.md").read_bytes()).hexdigest(),
         }
         current = Round(round_dir, meta)

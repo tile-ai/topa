@@ -32,8 +32,7 @@ DEFAULTS: dict[str, Any] = {
     "fork_owner": None,
     "model": "claude-opus-5-5",
     "effort": "high",
-    # Reviews a round's diff from the TileOPs worktree: read-only, the prompt as its last
-    # argument, the review on stdout. Runs on the host, with its own login.
+    # Runs on the host from the TileOPs worktree; see docs/usage.md.
     "reviewer": "codex exec --sandbox read-only",
     "tilefoundry_commit": None,
     "max_rounds": 2,
@@ -64,7 +63,8 @@ class Config:
 
     @property
     def reviewer_program(self) -> str:
-        return Path(shlex.split(self.reviewer)[0]).name
+        """The executable the `reviewer` command runs, as written there."""
+        return shlex.split(self.reviewer)[0]
 
     @property
     def rounds(self) -> Path:

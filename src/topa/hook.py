@@ -90,7 +90,8 @@ def decide(event: dict, round_dir: Path) -> dict | None:
         return None
     meta = _meta(round_dir)
     alias = meta.get("alias")
-    host = HOST_COMMANDS | {meta["reviewer"]} if "reviewer" in meta else HOST_COMMANDS
+    # A round started before `reviewer` was configurable reviews with Codex.
+    host = HOST_COMMANDS | {meta.get("reviewer", "codex")}
     if alias is None or runs_on_the_host(command, host):
         return None
     cwd = event.get("cwd") or str(round_dir)
