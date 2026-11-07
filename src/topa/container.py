@@ -82,12 +82,14 @@ def _spellings(*paths: Path) -> list[Path]:
 
 
 def proxy_env(config: Config) -> list[str]:
-    """The host proxy listens on loopback; rootless Docker reaches it as `proxy_host`."""
+    """The host's proxy settings, with a loopback proxy address replaced by `proxy_host`,
+    the host as the container reaches it."""
     env = []
     for var in PROXY_NAMES:
         value = os.environ.get(var)
-        if value:
+        if value and config.proxy_host:
             value = value.replace("127.0.0.1", config.proxy_host).replace("localhost", config.proxy_host)
+        if value:
             env += ["--env", f"{var}={value}"]
     for var in ("NO_PROXY", "no_proxy"):
         env += ["--env", f"{var}={config.no_proxy}"]

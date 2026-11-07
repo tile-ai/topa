@@ -26,7 +26,7 @@ DEFAULTS: dict[str, Any] = {
     "gpu_exclude": [],
     "docker_host": None,
     "docker_bootstrap": None,
-    "proxy_host": "10.0.2.2",
+    "proxy_host": None,
     "no_proxy": "localhost,127.0.0.1",
     "upstream": "tile-ai/TileOPs",
     "fork_owner": None,
@@ -52,7 +52,7 @@ class Config:
     gpu_exclude: tuple[int, ...]
     docker_host: str | None
     docker_bootstrap: str | None
-    proxy_host: str
+    proxy_host: str | None
     no_proxy: str
     upstream: str
     fork_owner: str | None
