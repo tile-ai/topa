@@ -29,7 +29,9 @@ Apply to every TileOPs PR. Rules TileOPs documents or checks in CI are cited, no
 
 | Criterion | Pass | Fail |
 | --- | --- | --- |
-| One copy | When five or more statements are added: no near-identical copy exists elsewhere | a copy is added instead of a shared helper or `@T.macro`; cite both |
+| One copy | When five or more statements, or a call of ten or more arguments, are added: no copy differing only in names and literals exists elsewhere | a copy is added instead of a shared helper, `@T.macro` or argument tuple; cite both |
+| Single use | When an internal helper, parameter or flag is added: calls in the repository need it and together use each option it offers | no call needs it, or an option is never used; one caller alone is fine |
+| Scope | When a module-level constant is added: more than one implementation uses it | it serves one implementation; move it to its use site or its class |
 | Positional order | When a parameter is added to an existing function: it is last or keyword-only | it shifts an existing positional parameter |
 | Reason in comments | When a comment sits beside a chosen value: it says why the value holds | it gives only a measurement, a date or history |
 
