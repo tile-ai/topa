@@ -18,4 +18,4 @@ topa = "topa.cli:main"
 where = ["src"]
 
 [tool.setuptools.package-data]
-topa = ["kit/**/*", "kit/**/.gitkeep", "knowledge/*"]
+topa = ["kit/**/*", "kit/**/.gitkeep", "knowledge/*", "checklists/*"]

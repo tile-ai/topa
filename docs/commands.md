@@ -13,4 +13,6 @@
 | `topa round log [<slug>]` | ledger events |
 | `topa round stop <slug> [--rm]` | stop, archive, release |
 | `topa gate` / `topa pr [--reviewed]` | check the evidence / open the PR (run by the agent) |
+| `topa review next <PR> [--wait <s>]` | prepare the PR's next review round, if one is due |
+| `topa review post <PR>` | post the round's findings as one review |
 | `topa run <cmd>` | one command against a TileOPs worktree in a throwaway container |

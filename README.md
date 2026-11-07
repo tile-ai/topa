@@ -25,6 +25,7 @@ topa hunt                  # ops TileOPs is behind on, from the newest nightly
 topa issue new <Op>        # file or claim the op's issue
 topa round start <issue>   # one agent, one GPU, one issue
 topa round status          # every round, its agent and its PR
+topa review next <PR>      # a review round of a TileOPs PR, driven by the topa-review skill
 ```
 
 [Getting started](docs/usage.md) covers the prerequisites and each step.

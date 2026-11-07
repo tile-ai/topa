@@ -141,6 +141,20 @@ def _pr(args: argparse.Namespace) -> int:
     return 0
 
 
+def _review_next(args: argparse.Namespace) -> int:
+    from topa.review import next_round
+
+    _print_json(next_round(config_module.load(), args.pr, wait=args.wait, max_rounds=args.max_rounds))
+    return 0
+
+
+def _review_post(args: argparse.Namespace) -> int:
+    from topa.review import post
+
+    _print_json(post(config_module.load(), args.pr, request_changes=args.request_changes))
+    return 0
+
+
 def _hook(args: argparse.Namespace) -> int:
     from topa.hook import pre_tool_use
 
@@ -224,6 +238,18 @@ def parser() -> argparse.ArgumentParser:
     p.add_argument("--reviewed", action="store_true")
     p.add_argument("--no-watch", action="store_true", help="do not wait on the PR checks")
     p.set_defaults(func=_pr)
+
+    review = sub.add_parser("review", help="review a TileOPs PR round by round").add_subparsers(
+        dest="review_command", required=True)
+    p = review.add_parser("next", help="prepare the PR's next review round, if one is due")
+    p.add_argument("pr", type=int)
+    p.add_argument("--wait", type=int, default=0, metavar="SECONDS", help="poll up to SECONDS for a round to be due")
+    p.add_argument("--max-rounds", type=int, default=10)
+    p.set_defaults(func=_review_next)
+    p = review.add_parser("post", help="post the round's findings.json as one review")
+    p.add_argument("pr", type=int)
+    p.add_argument("--request-changes", action="store_true", help="submit REQUEST_CHANGES instead of COMMENT")
+    p.set_defaults(func=_review_post)
 
     hook = sub.add_parser("hook", help="Claude Code hooks").add_subparsers(dest="hook_command", required=True)
     p = hook.add_parser("pre-tool-use", help="route a round's shell commands into its container")
