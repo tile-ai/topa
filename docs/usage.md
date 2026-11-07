@@ -1,7 +1,8 @@
 # Getting started
 
 You need x86_64 Linux with an NVIDIA driver for CUDA 13.2 or newer, Docker with the NVIDIA
-runtime, Claude Code and the Codex CLI (both logged in), `gh`, `git`, `uv` and the
+runtime, Claude Code and the reviewer that `reviewer` in `~/.topa/config.toml` names
+(the Codex CLI by default), both logged in, `gh`, `git`, `uv` and the
 [herdr TUI](https://herdr.dev/tui).
 
 ## 1. Set up Git and GitHub

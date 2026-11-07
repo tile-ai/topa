@@ -21,20 +21,21 @@ from pathlib import Path
 from typing import TextIO
 
 # These act on files, on GitHub, or on the round itself, not on the compute stack.
-# git, gh and codex use the host credentials; topa drives the host. The text tools stay
-# with them, so `gh issue view 1 | head` is not moved into the container for its pipe.
+# git, gh and the round's reviewer (`round.json`) use the host credentials; topa drives the
+# host. The text tools stay with them, so `gh issue view 1 | head` is not moved into the
+# container for its pipe.
 HOST_COMMANDS = frozenset({
-    "cd", "codex", "gh", "git", "ls", "cat", "pwd", "mkdir", "rm", "cp", "mv", "topa",
+    "cd", "gh", "git", "ls", "cat", "pwd", "mkdir", "rm", "cp", "mv", "topa",
     "echo", "printf", "head", "tail", "wc", "grep", "sort", "uniq", "cut", "tr", "tee",
 })
 
 
-def ssh_alias(round_dir: Path) -> str | None:
-    """The round container's SSH alias, as `topa round start` recorded it."""
+def _meta(round_dir: Path) -> dict:
+    """What `topa round start` recorded in `round.json`, or nothing outside a round."""
     try:
-        return json.loads((round_dir / "round.json").read_text()).get("alias")
+        return json.loads((round_dir / "round.json").read_text())
     except (OSError, json.JSONDecodeError):
-        return None
+        return {}
 
 
 # The lexer returns a run of these characters as one token. A run is a redirection
@@ -62,7 +63,7 @@ def _commands(command: str) -> list[list[str]]:
 SUBSTITUTION = re.compile(r"[$<>]\(|`")
 
 
-def runs_on_the_host(command: str) -> bool:
+def runs_on_the_host(command: str, host: frozenset[str] = HOST_COMMANDS) -> bool:
     """Whether every program *command* invokes is a host-side one.
 
     `cd work && pytest` names a host command first and a container command
@@ -78,7 +79,7 @@ def runs_on_the_host(command: str) -> bool:
         commands = _commands(command)
     except ValueError:  # unbalanced quotes: let the container decide
         return False
-    return all(Path(words[0]).name in HOST_COMMANDS for words in commands)
+    return all(Path(words[0]).name in host for words in commands)
 
 
 def decide(event: dict, round_dir: Path) -> dict | None:
@@ -87,8 +88,10 @@ def decide(event: dict, round_dir: Path) -> dict | None:
     command = tool_input.get("command")
     if not isinstance(command, str) or not command.strip():
         return None
-    alias = ssh_alias(round_dir)
-    if alias is None or runs_on_the_host(command):
+    meta = _meta(round_dir)
+    alias = meta.get("alias")
+    host = HOST_COMMANDS | {meta["reviewer"]} if "reviewer" in meta else HOST_COMMANDS
+    if alias is None or runs_on_the_host(command, host):
         return None
     cwd = event.get("cwd") or str(round_dir)
     remote = f"cd {shlex.quote(cwd)} && {command}"

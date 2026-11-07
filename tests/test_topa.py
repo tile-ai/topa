@@ -275,7 +275,7 @@ class HookTests(unittest.TestCase):
     def test_routing(self) -> None:
         with tempfile.TemporaryDirectory() as folder:
             round_dir = Path(folder)
-            (round_dir / "round.json").write_text('{"alias": "topa-x-r1"}')
+            (round_dir / "round.json").write_text('{"alias": "topa-x-r1", "reviewer": "codex"}')
             event = lambda command: {"tool_input": {"command": command}, "cwd": folder}
             for command in (
                 "git status && ls",
@@ -384,7 +384,7 @@ class RoundTests(unittest.TestCase):
                 start(defaults(), issue=2812, dry_run=True)
             values = {name: name for name in ("SLUG", "ROUND_DIR", "UPSTREAM", "BRANCH", "TILEOPS_BASE",
                                                "TILEOPS_WORKTREE", "TILEFOUNDRY_BASE", "TILEFOUNDRY_SOURCE",
-                                               "KNOWLEDGE", "TOPA", "PRIOR_ATTEMPTS")}
+                                               "KNOWLEDGE", "TOPA", "PRIOR_ATTEMPTS", "REVIEWER")}
             text = brief("general", values | _issue_work(defaults(), 2812)[1])
             self.assertIn("> ## Repro\n> x = 1e36", text)
             self.assertIn("`Closes #2812`", text)

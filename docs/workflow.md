@@ -12,7 +12,7 @@ its fastest comparator:
    rounds on this machine. Then it starts Claude Code in a herdr pane and tells it to read
    the brief.
 3. The agent runs on the host. A PreToolUse hook sends each shell line that runs anything
-   but `git`, `gh`, `codex`, `topa`, a file operation or a text tool into the round's
+   but `git`, `gh`, the reviewer, `topa`, a file operation or a text tool into the round's
    container over SSH.
 4. The agent follows the seven stages of the
    [perf brief](../src/topa/kit/round/perf/brief.md), from classifying the comparators to

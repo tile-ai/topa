@@ -265,7 +265,7 @@ def start(config: Config, name: str | None = None, *, issue: int | None = None, 
           dry_run: bool = False, force: bool = False) -> dict[str, Any]:
     """Start a round on the op *name* of the wiki queue (the newest page unless *page* is
     given), or on the TileOPs *issue*."""
-    sh.require("claude", "codex", "docker", "gh", "git", "herdr", "ssh", "ssh-keygen", "nvidia-smi")
+    sh.require("claude", config.reviewer_program, "docker", "gh", "git", "herdr", "ssh", "ssh-keygen", "nvidia-smi")
     if (name is None) == (issue is None):
         raise SystemExit("name an op or pass --issue <N>, not both")
     if issue is None:
@@ -328,7 +328,7 @@ def start(config: Config, name: str | None = None, *, issue: int | None = None, 
         values |= {
             "SLUG": slug, "ROUND_DIR": round_dir, "UPSTREAM": config.upstream, "BRANCH": branch,
             "TILEOPS_BASE": tileops_base, "TILEOPS_WORKTREE": worktree, "TILEFOUNDRY_BASE": prepared.commit,
-            "TILEFOUNDRY_SOURCE": source, "KNOWLEDGE": knowledge(), "TOPA": topa,
+            "TILEFOUNDRY_SOURCE": source, "KNOWLEDGE": knowledge(), "TOPA": topa, "REVIEWER": config.reviewer,
         }
         _write_round_dir(config, round_dir, plan["kind"], values, topa)
         if prior is not None:
@@ -347,7 +347,7 @@ def start(config: Config, name: str | None = None, *, issue: int | None = None, 
             "tileops_base": tileops_base, "tilefoundry_base": prepared.commit,
             "foundry_source": str(source), "container": started.name, "alias": started.alias,
             "gpu": started.gpu, "image": started.image, "workspace": workspace, "pane": pane,
-            "model": config.model, "effort": config.effort,
+            "model": config.model, "effort": config.effort, "reviewer": config.reviewer_program,
             "brief_sha256": hashlib.sha256((round_dir / "brief.md").read_bytes()).hexdigest(),
         }
         current = Round(round_dir, meta)

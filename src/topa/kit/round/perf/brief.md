@@ -130,7 +130,7 @@ each record that does not apply, with the reason.
 
 Follow [Cleanup](#cleanup), [Review](#review) and [PR](#pr), with these additions:
 
-- Give Codex the rows, the Performance table with its raw timings, the timer resolution and
+- Give the reviewer the rows, the Performance table with its raw timings, the timer resolution and
   the floors, and ask for the comparator classes, claimed ties and regressions against main.
 - Keep a cleanup change only when the result of the bar is unchanged.
 - Re-read the final HIR with the evidence before `topa pr --reviewed`.

@@ -7,6 +7,7 @@ overrides any one of them for a single command.
 from __future__ import annotations
 
 import os
+import shlex
 import tomllib
 from dataclasses import dataclass
 from pathlib import Path
@@ -31,6 +32,9 @@ DEFAULTS: dict[str, Any] = {
     "fork_owner": None,
     "model": "claude-opus-5-5",
     "effort": "high",
+    # Reviews a round's diff from the TileOPs worktree: read-only, the prompt as its last
+    # argument, the review on stdout. Runs on the host, with its own login.
+    "reviewer": "codex exec --sandbox read-only",
     "tilefoundry_commit": None,
     "max_rounds": 2,
 }
@@ -54,8 +58,13 @@ class Config:
     fork_owner: str | None
     model: str
     effort: str
+    reviewer: str
     tilefoundry_commit: str | None
     max_rounds: int
+
+    @property
+    def reviewer_program(self) -> str:
+        return Path(shlex.split(self.reviewer)[0]).name
 
     @property
     def rounds(self) -> Path:

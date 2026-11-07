@@ -20,7 +20,7 @@ from topa.config import Config
 
 def setup(config: Config) -> list[str]:
     done = []
-    sh.require("claude", "codex", "docker", "gh", "git", "herdr", "ssh", "ssh-keygen", "nvidia-smi")
+    sh.require("claude", config.reviewer_program, "docker", "gh", "git", "herdr", "ssh", "ssh-keygen", "nvidia-smi")
     # Write the config first, so a first run that stops below leaves a file to edit.
     config_module.HOME.mkdir(parents=True, exist_ok=True)
     if not config_module.CONFIG.exists():

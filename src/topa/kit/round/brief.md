@@ -34,8 +34,8 @@ The code, the PR and any issue you open are public.
 
 ## Where commands run
 
-- Lines that run only `git`, `gh`, `codex`, `topa`, file commands or text tools run on the
-  host; every other line runs in the round container, at the same paths.
+- Lines that run only `git`, `gh`, the reviewer, `topa`, file commands or text tools run on
+  the host; every other line runs in the round container, at the same paths.
 - Do not write `ssh` or `docker` commands.
 
 {{KIND}}
@@ -55,10 +55,10 @@ Exit: the verification passes.
 
 ## Review
 
-1. Run Codex read-only on the worktree, from the round directory:
+1. Run the reviewer read-only on the worktree:
 
    ```bash
-   codex exec -C {{TILEOPS_WORKTREE}} --sandbox read-only "<prompt>" < /dev/null > {{ROUND_DIR}}/evidence/review-<n>.md 2>&1
+   cd {{TILEOPS_WORKTREE}} && {{REVIEWER}} "<prompt>" < /dev/null > {{ROUND_DIR}}/evidence/review-<n>.md 2>&1
    ```
 
 2. Give it the diff against the current `tileops_base`, this brief, and the paths of TileOPs
@@ -70,7 +70,7 @@ Exit: the verification passes.
    single-use helper, repeated logic, a case whose inputs and assertions another case covers).
 4. Fix each finding you agree with.
 5. Answer each other finding with a test, a measurement or a rule.
-6. Rerun Codex on the revised diff. Rerun a review that ends in an error.
+6. Rerun the reviewer on the revised diff. Rerun a review that ends in an error.
 
 Exit: no blocking or major finding is left. A blocking or major finding still disputed
 after two reviews ends the round: follow [Ending without a PR](#ending-without-a-pr).
