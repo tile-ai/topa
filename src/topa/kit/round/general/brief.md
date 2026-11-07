@@ -26,9 +26,9 @@ Exit: the new test fails on the base, or `report.md` says why there is none.
 
 Exit: the new test and the verification pass.
 
-### 4-6. Review, cleanup and PR
+### 4-6. Cleanup, review and PR
 
-Follow [Review](#review), [Cleanup](#cleanup) and [PR](#pr).
+Follow [Cleanup](#cleanup), [Review](#review) and [PR](#pr).
 
 ## Verification
 

@@ -126,13 +126,13 @@ each record that does not apply, with the reason.
 | (2) Directions exhausted | Each direction on the recorded list for each bottleneck was measured or shown infeasible. |
 | (3) TileFoundry consulted | Alternative placements were compared, the tutorial and spec pages on each bottleneck were read, and each direction they gave is on the list. |
 
-### 5-7. Review, cleanup and PR
+### 5-7. Cleanup, review and PR
 
-Follow [Review](#review), [Cleanup](#cleanup) and [PR](#pr), with these additions:
+Follow [Cleanup](#cleanup), [Review](#review) and [PR](#pr), with these additions:
 
 - Give Codex the rows, the Performance table with its raw timings, the timer resolution and
   the floors, and ask for the comparator classes, claimed ties and regressions against main.
-- Leave cleanup only when the result of the bar is unchanged.
+- Keep a cleanup change only when the result of the bar is unchanged.
 - Re-read the final HIR with the evidence before `topa pr --reviewed`.
 
 ## Verification

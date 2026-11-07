@@ -40,6 +40,19 @@ The code, the PR and any issue you open are public.
 
 {{KIND}}
 
+## Cleanup
+
+1. Inline single-caller helpers.
+2. Merge repeated logic.
+3. Move measured numbers, what was tried and unresolved causes out of comments and docstrings
+   into the PR comments; a comment beside a chosen value keeps why the value holds.
+4. Delete tests that guard no shipped behavior, and cases whose inputs and assertions another
+   case already covers.
+5. Pass `pre-commit run --all-files`.
+6. Run the [Verification](#verification) on the candidate commit.
+
+Exit: the verification passes.
+
 ## Review
 
 1. Run Codex read-only on the worktree, from the round directory:
@@ -52,7 +65,9 @@ The code, the PR and any issue you open are public.
    `docs/design/` and `docs/code-style.md`. Withhold your self-review.
 3. Ask for correctness (edge shapes, dtypes, tails), the real call path, branch coverage,
    whether the diff meets the requirement and adds nothing it does not ask for, and hotfixes
-   (a loosened tolerance or check, a skipped case, test-only logic, a shape branch).
+   (a loosened tolerance or check, a skipped case, test-only logic, a shape branch), and
+   bloat (a comment carrying a measured number, what was tried or an unresolved cause, a
+   single-use helper, repeated logic, a case whose inputs and assertions another case covers).
 4. Fix each finding you agree with.
 5. Answer each other finding with a test, a measurement or a rule.
 6. Rerun Codex on the revised diff. Rerun a review that ends in an error.
@@ -60,24 +75,13 @@ The code, the PR and any issue you open are public.
 Exit: no blocking or major finding is left. A blocking or major finding still disputed
 after two reviews ends the round: follow [Ending without a PR](#ending-without-a-pr).
 
-## Cleanup
-
-1. Inline single-caller helpers.
-2. Merge repeated logic.
-3. Delete process comments and tests that guard no shipped behavior.
-4. Pass `pre-commit run --all-files`.
-5. Run the [Verification](#verification) on the candidate commit.
-6. Repeat the review if the cleanup changed logic, dispatch, tests or a measured number.
-
-Exit: the verification passes.
-
 ## PR
 
 1. Rebase onto the newest `{{UPSTREAM}}` main.
 2. Set `tileops_base` in `provenance.json` to the new base.
 3. Title the commit as [PR files](#pr-files) says, with no authorship trailer.
-4. Run cleanup steps 4-5.
-5. Run the review on the final diff and evidence when steps 1-4 changed code or a number.
+4. Run cleanup steps 5-6.
+5. Run the review on the final diff and evidence.
 6. Set `candidate_commit` in `provenance.json` to HEAD.
 7. Fill in the files [PR files](#pr-files) lists, where they are. {{LINK}}
 8. Replace every `<...>`, and add no `## ` section to the body.

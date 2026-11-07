@@ -42,7 +42,7 @@ Apply when `association` in `pr.json` is not `OWNER`, `MEMBER` or `COLLABORATOR`
 | Single use | When an internal helper, parameter or flag is added: calls in the repository need it and together use each option it offers | no call needs it, or an option is never used; one caller alone is fine |
 | Scope | When a module-level constant is added: more than one implementation uses it | it serves one implementation; move it to its use site or its class |
 | Positional order | When a parameter is added to an existing function: it is last or keyword-only | it shifts an existing positional parameter |
-| Reason in comments | When a comment sits beside a chosen value: it says why the value holds | it gives only a measurement, a date or history |
+| Reason in comments | When a comment or docstring is added: it carries no measured number, date, attempt history or unresolved cause, and beside a chosen value it says why the value holds | it carries one of them, or a chosen value has no reason |
 
 ## PR body
 
