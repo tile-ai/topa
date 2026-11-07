@@ -1,9 +1,8 @@
 # Getting started
 
 You need x86_64 Linux with an NVIDIA driver for CUDA 13.2 or newer, Docker with the NVIDIA
-runtime, Claude Code and the reviewer that `reviewer` in `~/.topa/config.toml` names
-(the Codex CLI by default), both logged in, `gh`, `git`, `uv` and the
-[herdr TUI](https://herdr.dev/tui).
+runtime, Claude Code and the coding agent CLI that `reviewer` in `~/.topa/config.toml`
+names, both logged in, `gh`, `git`, `uv` and the [herdr TUI](https://herdr.dev/tui).
 
 ## 1. Set up Git and GitHub
 
@@ -37,13 +36,11 @@ mkdir -p ~/.topa && topa config --default > ~/.topa/config.toml
 ```
 
 Set `tileops_repo`, `tilefoundry_repo`, `worktree_root` and `fork_owner` in that file, and
-`gpu_exclude` to the cards topa must not use. `reviewer` is the command a round runs on
-the host, from the TileOPs worktree, to review its diff: it starts a fresh session apart
-from the round agent, cannot write, takes the prompt as its last argument and prints the
-review. The default is Codex; with Claude Code, set
-`reviewer = "claude -p --allowedTools='Read,Grep,Glob,Bash(git diff:*),Bash(git log:*),Bash(git show:*)'"`.
-A config file from an older topa fails to
-load until you delete its `tracker` line. Then:
+`gpu_exclude` to the cards topa must not use. `reviewer` is the coding agent command a
+round runs on the host, from the TileOPs worktree, to review its diff: it starts a fresh
+session apart from the round agent, cannot write, takes the prompt as its last argument
+and prints the review. A config file from an older topa fails to load until you delete its
+`tracker` line. Then:
 
 ```bash
 topa setup       # pulls the runner image and builds topa:agent
