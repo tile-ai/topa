@@ -40,6 +40,9 @@ and `checklists`. `dir` holds `pr.json` (title, body, author, its association, b
 - State each comment as a claim that is true or false; hedges such as "consider" fail this.
 - Put only what spans files, and which `threads.json` threads the head fixes, in the
   summary; write `No findings.` when there is nothing. Do not repeat inline comments there.
+- For an external PR (`association` in `pr.json` is not `OWNER`, `MEMBER` or
+  `COLLABORATOR`), follow the External PRs section of `general.md` instead: base-branch
+  faults and missing tests go in the summary, and `Approve.` replaces `No findings.`.
 - Do not invent a finding on a clean PR. Write in English.
 
 ## 4. Post

@@ -433,6 +433,27 @@ diff --git a/docs/a b.md b/docs/a b.md
 
 
 class ReviewTests(unittest.TestCase):
+    def test_prepare_reads_the_pr_from_the_rest_api(self) -> None:
+        pull = {"title": "[Fix] x", "body": None, "user": {"login": "someone"},
+                "author_association": "CONTRIBUTOR", "base": {"ref": "main"}}
+        calls: list[list[str]] = []
+
+        def run(args: list, **kwargs) -> str:
+            calls.append([str(a) for a in args])
+            return {"rev-parse": "h" * 40, "merge-base": "b" * 40}.get(str(args[3]), "")
+
+        with tempfile.TemporaryDirectory() as folder, mock.patch("topa.config.HOME", Path(folder)), \
+                mock.patch("topa.review.sh.gh_json", return_value=pull) as gh_json, \
+                mock.patch("topa.review.sh.github_remote", return_value="upstream"), \
+                mock.patch("topa.review.sh.run", side_effect=run), \
+                mock.patch("topa.review._gh", return_value=[]), mock.patch("topa.review._threads", return_value=[]):
+            out = review.prepare(defaults(), 7)
+            written = json.loads(Path(out["dir"], "pr.json").read_text())
+        gh_json.assert_called_once_with("api", "repos/tile-ai/TileOPs/pulls/7")
+        self.assertIn("+refs/heads/main:refs/topa/review/7-base", calls[0])
+        self.assertEqual((written["author"], written["association"], written["body"]),
+                         ("someone", "CONTRIBUTOR", ""))
+
     def test_checklists_follow_changed_paths(self) -> None:
         names = lambda paths: [path.name for path in review.checklists(paths)]
         self.assertEqual(names(["src/tileops/elementwise.py", "scripts/a.py"]), ["general.md"])
