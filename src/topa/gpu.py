@@ -65,7 +65,7 @@ def choose(config: Config, container: str | None) -> Choice:
     bad, theirs, mine = unusable(config), foreign(), ours(config, container)
     if config.gpu is not None:
         if config.gpu in bad:
-            raise SystemExit(f"gpu={config.gpu} is reserved for CI or in an exclusive compute mode")
+            raise SystemExit(f"gpu={config.gpu} is in gpu_exclude or in an exclusive compute mode")
         if config.gpu in mine:
             return Choice(config.gpu, f"gpu {config.gpu} is also held by another running round")
         if config.gpu in theirs:
@@ -81,4 +81,4 @@ def choose(config: Config, container: str | None) -> Choice:
             return Choice(index, f"every free card is in use by another user; sharing gpu {index}")
     if order:
         return Choice(order[0], f"every usable card already holds a round; sharing gpu {order[0]}")
-    raise SystemExit(f"no usable GPU; reserved or exclusive: {sorted(bad)}")
+    raise SystemExit(f"no usable GPU; excluded or exclusive: {sorted(bad)}")

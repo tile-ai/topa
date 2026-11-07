@@ -358,7 +358,7 @@ def start(config: Config, name: str | None = None, *, issue: int | None = None, 
         _cd_pane(pane, round_dir)
         sh.herdr("agent", "start", slug, "--kind", "claude", "--pane", pane, "--timeout", "60000",
                  "--", "--dangerously-skip-permissions", *(("--model", config.model) if config.model else ()),
-                 "--effort", config.effort)
+                 *(("--effort", config.effort) if config.effort else ()))
         if not wait_ready(pane):
             sh.note(f"{pane} did not report ready within 60 s; sending the brief anyway")
         confirmed = submit(pane, PROMPT.format(slug=slug))

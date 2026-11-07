@@ -30,9 +30,9 @@ DEFAULTS: dict[str, Any] = {
     "no_proxy": "localhost,127.0.0.1",
     "upstream": "tile-ai/TileOPs",
     "fork_owner": None,
-    # Unset, the round agent runs its own default model.
+    # Unset, the round agent runs its own defaults.
     "model": None,
-    "effort": "high",
+    "effort": None,
     # Runs on the host from the TileOPs worktree; see docs/usage.md.
     "reviewer": None,
     "tilefoundry_commit": None,
@@ -57,7 +57,7 @@ class Config:
     upstream: str
     fork_owner: str | None
     model: str | None
-    effort: str
+    effort: str | None
     reviewer: str | None
     tilefoundry_commit: str | None
     max_rounds: int
