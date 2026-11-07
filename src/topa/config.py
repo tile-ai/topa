@@ -30,10 +30,8 @@ DEFAULTS: dict[str, Any] = {
     "no_proxy": None,
     "upstream": "tile-ai/TileOPs",
     "fork_owner": None,
-    # Unset, the round agent runs its own defaults.
     "model": None,
     "effort": None,
-    # Runs on the host from the TileOPs worktree; see docs/usage.md.
     "reviewer": None,
     "tilefoundry_commit": None,
     "max_rounds": 2,
@@ -64,7 +62,6 @@ class Config:
 
     @property
     def reviewer_program(self) -> str:
-        """The executable the `reviewer` command runs, as written there."""
         if not self.reviewer:
             raise SystemExit(f"set reviewer in {CONFIG}; see docs/usage.md")
         return shlex.split(self.reviewer)[0]

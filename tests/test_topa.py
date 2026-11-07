@@ -48,7 +48,9 @@ def git(repo: Path, *args: str) -> str:
 class ConfigTests(unittest.TestCase):
     def test_every_setting_is_documented(self) -> None:
         usage = (Path(__file__).parents[1] / "docs" / "usage.md").read_text()
-        self.assertEqual([name for name in config.DEFAULTS if f"`{name}`" not in usage], [])
+        rows = re.findall(r"^\| (`[^|]+`) \|", usage, re.MULTILINE)
+        documented = {name for row in rows for name in re.findall(r"`([a-z_]+)`", row)}
+        self.assertEqual(sorted(set(config.DEFAULTS) ^ documented), [])
 
     def test_first_run_writes_a_config_that_loads_then_asks_for_the_reviewer(self) -> None:
         env = {name: value for name, value in os.environ.items() if not name.startswith("TOPA_")}

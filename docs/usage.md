@@ -45,12 +45,12 @@ file; a `TOPA_<NAME>` environment variable overrides one setting for one command
 | `worktree_root` | Where round worktrees go | `~/TileOPs-worktrees` |
 | `runner_image` | The TileOPs runner image the agent image builds on | the TileOPs CI image |
 | `agent_image` | The tag `topa setup` builds | `topa:agent` |
-| `gpu` | The one card every round uses | topa picks a free card |
+| `gpu` | The one card every round uses | topa picks a card, sharing one only when none is free |
 | `gpu_exclude` | Cards topa never uses | none |
 | `docker_host` | `DOCKER_HOST` for topa's Docker calls | Docker's default |
 | `docker_bootstrap` | A command run before Docker is used, such as one starting a rootless daemon | none |
 | `proxy_host` | The host as the container reaches it; replaces a loopback address in the host's proxy variables | the variables pass unchanged |
-| `no_proxy` | The container's proxy bypass list | the host's `NO_PROXY` |
+| `no_proxy` | The container's proxy bypass list | the host's `NO_PROXY` and `no_proxy` |
 | `upstream` | The repository PRs open against | `tile-ai/TileOPs` |
 | `fork_owner` | The fork a round pushes to | the `gh` login |
 | `model`, `effort` | The round agent's model and effort | the agent's own defaults |
