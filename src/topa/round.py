@@ -192,7 +192,7 @@ def _write_round_dir(config: Config, path: Path, kind: str, values: dict[str, An
     claude = path / ".claude"
     claude.mkdir(exist_ok=True)
     settings = {
-        "model": config.model,
+        **({"model": config.model} if config.model else {}),
         "hooks": {"PreToolUse": [{"matcher": "Bash", "hooks": [
             {"type": "command", "command": f"{shlex.quote(str(topa))} hook pre-tool-use", "timeout": 10},
         ]}]},
@@ -357,7 +357,8 @@ def start(config: Config, name: str | None = None, *, issue: int | None = None, 
         sh.note(f"starting the agent in {pane}")
         _cd_pane(pane, round_dir)
         sh.herdr("agent", "start", slug, "--kind", "claude", "--pane", pane, "--timeout", "60000",
-                 "--", "--dangerously-skip-permissions", "--model", config.model, "--effort", config.effort)
+                 "--", "--dangerously-skip-permissions", *(("--model", config.model) if config.model else ()),
+                 "--effort", config.effort)
         if not wait_ready(pane):
             sh.note(f"{pane} did not report ready within 60 s; sending the brief anyway")
         confirmed = submit(pane, PROMPT.format(slug=slug))

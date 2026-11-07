@@ -30,7 +30,8 @@ DEFAULTS: dict[str, Any] = {
     "no_proxy": "localhost,127.0.0.1,pypi.org,files.pythonhosted.org,download.pytorch.org",
     "upstream": "tile-ai/TileOPs",
     "fork_owner": None,
-    "model": "claude-opus-5-5",
+    # Unset, the round agent runs its own default model.
+    "model": None,
     "effort": "high",
     # Runs on the host from the TileOPs worktree; see docs/usage.md.
     "reviewer": "codex exec --sandbox read-only",
@@ -55,7 +56,7 @@ class Config:
     no_proxy: str
     upstream: str
     fork_owner: str | None
-    model: str
+    model: str | None
     effort: str
     reviewer: str
     tilefoundry_commit: str | None
