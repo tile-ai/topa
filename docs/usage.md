@@ -56,10 +56,8 @@ topa round start <Op>      # start an agent on one op of the queue
 writes. The op's rows on that page, with its manifest, workloads, tests and benchmark, are
 the round's requirement; topa files no issue for it.
 
-The agent works on its own. It opens a PR from your fork when every row reaches its
-fastest comparator, or when it beats main without reaching the bar on every row; either
-way, no row may be slower than main. Otherwise
-it writes its stop records in `report.md` and opens no PR.
+The agent works on its own. It either opens a PR from your fork or writes its stop
+records in `report.md`; [How a round works](workflow.md) says when it does which.
 Follow it with `topa round status`, read its screen with `herdr agent read <pane-id>`, and
 send it instructions with `topa round say <slug> "..."`.
 

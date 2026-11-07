@@ -19,8 +19,8 @@ Each entry carries one tag:
 
 ## 1. Principle: write with the low-level forms
 
-TileLang's high-level forms compile to correct code. But on SM90 earlier rounds measured
-them again and again behind hand-written kernels such as DeepGEMM, FlashMLA and FA3.
+Why: on SM90, earlier rounds measured TileLang's high-level forms, which compile to
+correct code, behind hand-written kernels such as DeepGEMM, FlashMLA and FA3.
 
 - Write the production kernel with the low-level forms by default.
 - Keep a high-level form only when a measurement shows that it is not slower. Keep that
@@ -153,8 +153,7 @@ Both fixes together:
   - Fix: one producer and one consumer at 256 threads. Confirmed on 0.1.11.
 - **The register budget inside `T.ws` is applied** [0.1.11]. The CUDA contains
   `tl::warpgroup_reg_dealloc<24>()` and `tl::warpgroup_reg_alloc<240>()`.
-  - Search for those wrappers, not for `setmaxnreg`. No kernel contains that string,
-    which caused an earlier wrong reading that the budget was dropped.
+  - Search for those wrappers, not for `setmaxnreg`, which no kernel contains.
 - **`T.Parallel` binds to the kernel's thread extent, not to the enclosing guard**
   [0.1.12]. `T.If(tx >= 128)` masks half of the threads and leaves half of the work
   uncomputed. There is no error. The symptom is `'!!!!!!'` in the generated text.
@@ -312,8 +311,6 @@ consumer waits: full[k % stages].wait((k % (2*stages)) / stages)
 
 ## Adding an entry
 
-When a round confirms a fact that the next round would otherwise have to find again (a
-trap, a convention read from generated code, a form that does not exist), the round writes
-it in the `## TileLang knowledge` section of its `report.md`: what it did, the result, and
-the build. A round does not change this file. A person adds the entry after reading the
-report.
+- A round records a new fact under `## TileLang knowledge` in its `report.md`, as its
+  brief says, and does not change this file.
+- A person adds the entry after reading the report.

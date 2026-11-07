@@ -4,10 +4,11 @@ Optimize the op with [TileFoundry](https://github.com/tile-ai/TileFoundry) towar
 
 | Result | When | Do |
 | --- | --- | --- |
-| `bar met` | Every row of the op, behind or not, beats its fastest comparable comparator in the median and in every repeat, or ties it within one timer step or at the DRAM floor; no row of any op is slower than main. | Open the PR. |
-| `below bar` | The bar is not met, the candidate beats main on a row of the op, and no row of any op is slower than main. | Open the PR; list the unmet rows in Result And Limitations. |
+| `bar met` | Every row of the op, behind or not, beats its fastest comparable comparator in the median and in every repeat, or ties it within one timer step or at the DRAM floor. | Open the PR. |
+| `below bar` | The bar is not met, and the candidate beats main on a row of the op. | Open the PR; list the unmet rows in Result And Limitations. |
 | none | Neither, or a person must decide. | Follow [Ending without a PR](#ending-without-a-pr). |
 
+- Both `bar met` and `below bar` also require that no row of any op is slower than main.
 - "Any op" includes every op that shares a kernel the round changes.
 - `topa gate` checks this rule on the Performance medians; the review checks the repeats.
 
@@ -134,9 +135,15 @@ Title: `[Perf][foundry][<Family>] <imperative description>`.
 | File | Becomes | Holds |
 | --- | --- | --- |
 | `pr-template.md` | the title (line 1, same as the commit) and the body, which becomes the squash commit's message | Summary alone: one-line bullets of the kernel change and the gap's root cause |
-| `pr-comments.md` | one comment per `## ` section | Test Plan with the `scripts/test_node_delta.py` output and the path each new case guards; TileFoundry Description with `work/final_hir.py` verbatim; Performance with one row per measured workload of the op, and the other ops that share a changed kernel (delete that table when there are none); Result And Limitations opening with the result; TileFoundry Findings |
+| `pr-comments.md` | one comment per `## ` section | the sections below |
 
-Keep every `## ` heading and every column.
+- Test Plan: the `scripts/test_node_delta.py` output and the path each new case guards.
+- TileFoundry Description: `work/final_hir.py` verbatim.
+- Performance: one row per measured workload of the op, and the other ops that share a
+  changed kernel. Delete the other-ops table when there are none.
+- Result And Limitations: opens with the result.
+- TileFoundry Findings.
+- Keep every `## ` heading and every column.
 
 ## TileFoundry findings
 
