@@ -32,6 +32,7 @@ Apply when `association` in `pr.json` is not `OWNER`, `MEMBER` or `COLLABORATOR`
 | Reachable | each added function, branch or schedule runs on some call of a public op, a benchmark or a script | it runs only from a test, or never |
 | Tested | a test reaches each added path on an input where a fault there changes the asserted output | no test does |
 | Coverage kept | When a case is removed: every path, dtype and boundary still in the code stays reached by some case | one loses its last case |
+| Refusal gap | When the architectures or inputs an implementation serves change: each input in the signature that every implementation now refuses has one test asserting the refusal | no test asserts it (`docs/design/testing.md` § Tests) |
 
 ## Code
 
