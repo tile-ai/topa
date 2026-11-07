@@ -10,6 +10,7 @@ Apply when the diff touches `tests/`, `benchmarks/tests/` or `workloads/`. The r
 | One behavior per function | When a test function is added or changed: every cell runs the same assertions | an `if` on a parameter changes the assertions (`testing.md` § Growth) |
 | Smoke size | When a `smoke` case is added: it adds a new dtype, or reuses a smoke shape | it adds a second smoke shape for a dtype (`testing.md` § Test case policy) |
 | Architecture mark | When an architecture mark is added or moved: dispatch selects that path only on that architecture | another architecture also selects it (`testing.md` § Tests) |
+| Refusal gap | When the architectures or inputs an implementation serves change: each input in the signature that every implementation now refuses has one test asserting the refusal | no test asserts it (`testing.md` § Tests) |
 | Special values | When a special value (NaN, `inf`, an empty row, a sentinel) is handled or documented: a case passes it | no case does |
 
 - A boundary counts as a path: a tile or scale-group edge, a tail, an unaligned width, a size-1 dimension, a dispatch branch. Never ask to remove its last case.

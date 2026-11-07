@@ -16,6 +16,14 @@ Apply to every TileOPs PR. Rules TileOPs documents or checks in CI are cited, no
 - Cite the source row when a finding breaks a rule from this table.
 - Name the failing criterion in the comment.
 
+## External PRs
+
+Apply when `association` in `pr.json` is not `OWNER`, `MEMBER` or `COLLABORATOR`.
+
+- Comment only on correctness faults the diff introduces.
+- Put a fault the base branch already has, or a missing test, in the summary as a maintainer follow-up.
+- Open the summary with `Approve.` when no comment remains.
+
 ## Correctness
 
 | Criterion | Pass | Fail |

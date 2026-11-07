@@ -104,10 +104,10 @@ def prepare(config: Config, pr: int) -> dict[str, Any]:
     folder.mkdir(parents=True, exist_ok=True)
     (folder / "findings.json").unlink(missing_ok=True)
     repo, worktree = config.tileops_repo, folder / "worktree"
-    view = sh.gh_json("pr", "view", str(pr), "--repo", config.upstream, "--json", "title,body,author,baseRefName")
+    view = sh.gh_json("api", f"repos/{config.upstream}/pulls/{pr}")
     remote = sh.github_remote(repo, config.upstream)
     sh.run(["git", "-C", repo, "fetch", "--quiet", remote, f"+pull/{pr}/head:refs/topa/review/{pr}",
-            f"+refs/heads/{view['baseRefName']}:refs/topa/review/{pr}-base"])
+            f"+refs/heads/{view['base']['ref']}:refs/topa/review/{pr}-base"])
     head = sh.run(["git", "-C", repo, "rev-parse", f"refs/topa/review/{pr}"])
     base = sh.run(["git", "-C", repo, "merge-base", f"refs/topa/review/{pr}-base", head])
     sh.run(["git", "-C", repo, "worktree", "remove", "--force", worktree], check=False)
@@ -118,8 +118,9 @@ def prepare(config: Config, pr: int) -> dict[str, Any]:
     review_comments = _gh(config, f"pulls/{pr}/comments")
     others = [c for c in _gh(config, f"issues/{pr}/comments") + _gh(config, f"pulls/{pr}/reviews") + review_comments
               if c["type"] != "Bot" and (c["body"] or "").strip() and MARKER not in c["body"]]
-    inputs = {"pr.json": {"number": pr, "title": view["title"], "body": view["body"],
-                          "author": view["author"]["login"], "base": base, "head": head, "files": paths},
+    inputs = {"pr.json": {"number": pr, "title": view["title"], "body": view["body"] or "",
+                          "author": view["user"]["login"], "association": view["author_association"],
+                          "base": base, "head": head, "files": paths},
               "pr.diff": diff + "\n", "threads.json": _threads(config, pr, review_comments),
               "comments.json": others}
     for name, value in inputs.items():
