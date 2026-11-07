@@ -436,12 +436,14 @@ class ReviewTests(unittest.TestCase):
     def test_checklists_follow_changed_paths(self) -> None:
         names = lambda paths: [path.name for path in review.checklists(paths)]
         self.assertEqual(names(["src/tileops/elementwise.py", "scripts/a.py"]), ["general.md"])
-        self.assertEqual(names(["src/tileops/_kernels/gemm/a.py"]), ["general.md", "ops.md"])
+        self.assertEqual(names(["src/tileops/_kernels/gemm/a.py"]), ["general.md", "ops.md", "kernels.md"])
+        self.assertEqual(names(["src/tileops/_ops/gemm.py"]), ["general.md", "ops.md"])
         self.assertEqual(names(["benchmarks/tests/a.py"]), ["general.md", "tests.md", "benchmarks.md"])
         self.assertEqual(names(["workloads/a.py", "src/tileops/manifest/spec/a.yaml", "README.md"]),
                          ["general.md", "tests.md", "manifest.md", "docs.md"])
         every = ["src/tileops/csrc/a.h", "tests/a.py", "benchmarks/ops/a.py", "src/tileops/manifest/a.py", "docs/a.md"]
-        self.assertEqual(names(every), ["general.md", "ops.md", "tests.md", "benchmarks.md", "manifest.md", "docs.md"])
+        self.assertEqual(names(every), ["general.md", "ops.md", "kernels.md", "tests.md", "benchmarks.md",
+                                       "manifest.md", "docs.md"])
         self.assertTrue(all(path.is_file() for path in review.checklists(every)))
 
     def test_comments_anchor_on_hunk_lines_only(self) -> None:

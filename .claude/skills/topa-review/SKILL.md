@@ -20,8 +20,9 @@ and `checklists`. `dir` holds `pr.json` (title, body, base, head, changed files)
 1. Read each changed file in full in `worktree`.
 2. Review freely first: logic errors, edge cases, API misuse, races, leaks, broken
    invariants, error handling, performance regressions, dead code, missing tests.
-3. Apply every listed checklist. Read a TileOPs doc only when a checklist names it and
-   the diff leaves that rule's outcome unclear.
+3. Apply every listed checklist; skip a row whose `When` clause the diff does not meet.
+   Read a TileOPs doc only when a checklist names it and the diff leaves that rule's
+   outcome unclear.
 4. For each thread in `threads.json`, check in the code whether the head fixes it. Do not
    raise an open thread's finding again.
 5. Answer questions in `comments.json` addressed to the review in the summary.

@@ -21,6 +21,7 @@ MARKER = "<!-- topa-review -->"
 # The checklist each changed path loads, besides `general.md`.
 CHECKLISTS = (
     ("ops.md", re.compile(r"^src/tileops/(_ops|_kernels|_utils|csrc|backend)/")),
+    ("kernels.md", re.compile(r"^src/tileops/(_kernels|csrc)/")),
     ("tests.md", re.compile(r"^(tests|workloads|benchmarks/tests)/")),
     ("benchmarks.md", re.compile(r"^benchmarks/")),
     ("manifest.md", re.compile(r"^src/tileops/manifest/")),
