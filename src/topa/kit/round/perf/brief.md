@@ -145,7 +145,7 @@ Title: `[Perf][foundry][<Family>] <imperative description>`.
 
 | File | Becomes | Holds |
 | --- | --- | --- |
-| `pr-template.md` | the title (line 1, same as the commit) and the body, which becomes the squash commit's message | Summary alone: one-line bullets of the kernel change and the gap's root cause |
+| `pr-template.md` | the title (line 1, same as the commit) and the body, which becomes the squash commit's message | Summary alone: one-line bullets of the kernel change and the gap's root cause, then the `Op:`, `Benchmark:` and `Result:` lines, which later rounds search |
 | `pr-comments.md` | one comment per `## ` section | the sections below |
 
 - Test Plan: the `scripts/test_node_delta.py` output and the path each new case guards.

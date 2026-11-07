@@ -33,6 +33,8 @@ COMMENT_SECTIONS = {
 GENERAL_TITLE = re.compile(r"\[(Bench|BugFix|Chore|CI|Design|Doc|Enhancement|Feat|Fix|Maintain|Perf|Refactor|"
                            r"Style|Test)\](\[[A-Za-z0-9_-]+\])? [A-Z`].+")
 RESULTS = ("bar met", "below bar")
+# The last lines of a perf PR body, which `topa.history` reads to find earlier attempts at an op.
+TRAILER = re.compile(r"^(Op|Benchmark|Result): *(\S.*?) *$", re.MULTILINE)
 # How far a stated ratio may sit from the one its rounded times give.
 RATIO_ROUNDING = 0.01
 ENVIRONMENT_ROWS = ("image", "digest", "gpu", "timer", "timer step (us)")
@@ -122,6 +124,11 @@ def sections(text: str) -> list[tuple[str, str]]:
         if found:
             found[-1] = (found[-1][0], found[-1][1] + line)
     return found
+
+
+def trailers(body: str) -> dict[str, str]:
+    """The `Op:`, `Benchmark:` and `Result:` lines of a perf PR body."""
+    return {key: value.strip() for key, value in TRAILER.findall((body or "").replace("\r\n", "\n"))}
 
 
 def read_pr(round_dir: Path) -> tuple[str, str]:
@@ -315,7 +322,8 @@ def _list(provenance: dict, name: str) -> list:
 
 
 def validate_round(round_dir: Path, tileops_repo: Path, head: str = "HEAD", workloads: tuple[str, ...] = (),
-                   measured: int = 0, kind: str = "perf", issue: int | None = None) -> dict:
+                   measured: int = 0, kind: str = "perf", issue: int | None = None,
+                   op: str | None = None, benchmark: str | None = None, trailers: bool = True) -> dict:
     """Validate only facts a program can decide without interpreting optimization quality.
 
     Every round binds its records to the commit it ships, records its tests and reviews,
@@ -324,6 +332,8 @@ def validate_round(round_dir: Path, tileops_repo: Path, head: str = "HEAD", work
     are the op's rows behind and *measured* its count of measured rows, which the table
     must show.
     A perf round on an issue takes its rows from `workloads` in `provenance.json`.
+    A perf PR body ends with `Op:`, `Benchmark:` and `Result:` lines that equal *op*,
+    *benchmark* and the provenance result where the round records them.
     """
     round_dir = round_dir.resolve()
     tileops_repo = tileops_repo.resolve()
@@ -350,7 +360,24 @@ def validate_round(round_dir: Path, tileops_repo: Path, head: str = "HEAD", work
                 raise GateError("provenance workloads must name the workloads the issue lists")
             measured = len(workloads)
         _validate_perf(round_dir, provenance, changed, workloads, measured)
+        if trailers:
+            _validate_trailers(round_dir, {"Op": op, "Benchmark": benchmark, "Result": provenance["result"]})
     return provenance
+
+
+def _validate_trailers(round_dir: Path, recorded: dict[str, str | None]) -> None:
+    """Each trailer is present, and equals what the round records when it records one."""
+    body = read_pr(round_dir)[1]
+    last = re.split(r"\n[ \t]*\n", body.strip())[-1].splitlines()
+    found = trailers("\n".join(last))
+    if len(last) != len(recorded) or len(found) != len(recorded):
+        raise GateError(f"{PR_FILE} must end with one paragraph of exactly the "
+                        f"{', '.join(f'`{key}:`' for key in recorded)} lines")
+    for key, value in recorded.items():
+        if key not in found:
+            raise GateError(f"{PR_FILE} must end with a `{key}:` line")
+        if value is not None and found[key] != value:
+            raise GateError(f"{PR_FILE} says `{key}: {found[key]}`; the round records `{value}`")
 
 
 def _validate_perf(round_dir: Path, provenance: dict, changed: list[str], workloads: tuple[str, ...],

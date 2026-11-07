@@ -34,7 +34,8 @@ def filled(name: str, result: str = "bar met", kind: str = "perf") -> str:
     text = re.sub(r"^# \[.*", f"# {title}", text)
     text = re.sub(r"<work/final_hir\.py[^\n]*>", HIR.rstrip("\n"), text)
     text = text.replace("sha256:<image digest>", "sha256:" + "a" * 64)
-    text = text.replace("**<bar met | below bar>**", f"**{result}**")
+    text = text.replace("**<bar met | below bar>**", f"**{result}**").replace("<bar met | below bar>", result)
+    text = text.replace("Op: <Op>", "Op: AFwdOp").replace("<benchmark module>", "benchmarks.ops.bench_a")
     text = re.sub(r"^<[^\n]*>$", "1", text, flags=re.MULTILINE)
     return gate.PLACEHOLDER.sub("1", text)
 
@@ -107,6 +108,14 @@ class GateTests(unittest.TestCase):
     def test_complete_round_passes(self) -> None:
         self.assertEqual(self.validate()["result"], "bar met")
 
+    def test_trailers_name_the_round_op(self) -> None:
+        kwargs = {"workloads": self.workloads, "measured": self.measured, "benchmark": "benchmarks.ops.bench_a"}
+        self.assertEqual(gate.validate_round(self.round, self.repo, op="AFwdOp", **kwargs)["result"], "bar met")
+        with self.assertRaisesRegex(gate.GateError, "says `Op: AFwdOp`; the round records `BFwdOp`"):
+            gate.validate_round(self.round, self.repo, op="BFwdOp", **kwargs)
+        self.edit("pr-template.md", lambda t: t.split("\nOp:")[0] + "\n")
+        self.assertEqual(gate.validate_round(self.round, self.repo, trailers=False, **kwargs)["result"], "bar met")
+
     def edit(self, name: str, change) -> None:
         path = self.round / name
         path.write_text(change(path.read_text()))
@@ -152,7 +161,7 @@ class GateTests(unittest.TestCase):
                     gate.validate_round(self.round, self.repo, kind="general", issue=7)
 
     def test_perf_issue_round_takes_its_rows_from_provenance(self) -> None:
-        self.edit("pr-template.md", lambda t: t + "\nRefs #7\n")
+        self.edit("pr-template.md", lambda t: t.replace("\n\nOp:", "\nRefs #7\n\nOp:"))
         self.provenance["workloads"] = ["1"]
         self.write_provenance()
         self.assertEqual(gate.validate_round(self.round, self.repo, issue=7)["result"], "bar met")
@@ -191,6 +200,12 @@ class GateTests(unittest.TestCase):
                                                      lambda t: t.replace("```text\n1\n```", "```text\n<x>\n```")),
             "placeholder <x>": lambda: self.edit("pr-template.md", lambda t: t.replace("## Summary\n\n- 1", "## Summary\n\n- <x>")),
             "Summary section alone": lambda: self.edit("pr-template.md", lambda t: t + "\n## Benchmark\n\n- 1\n"),
+            "exactly the `Op:`, `Benchmark:`, `Result:` lines": lambda: self.edit(
+                "pr-template.md", lambda t: t.replace("Benchmark: benchmarks.ops.bench_a\n", "")),
+            "end with one paragraph of exactly": lambda: self.edit(
+                "pr-template.md", lambda t: t + "\nRefs #1\n"),
+            "says `Result: below bar`; the round records `bar met`": lambda: self.edit(
+                "pr-template.md", lambda t: t.replace("Result: bar met", "Result: below bar")),
             "TileFoundry Findings, in order": lambda: self.edit(
                 "pr-comments.md", lambda t: t.replace("## TileFoundry Findings", "## Findings")),
             "full sha256": lambda: self.edit("pr-comments.md", lambda t: t.replace("a" * 64, "a" * 12)),
@@ -495,9 +510,18 @@ class HistoryTests(unittest.TestCase):
                {"number": 2834, "title": "[Perf][GEMM] b", "state": "MERGED", "body": "GEMMFwdOp rows"},
                {"number": 1567, "title": "[Perf][GroupedGemm] c", "state": "CLOSED", "body": "bench_grouped_gemm"},
                {"number": 2900, "title": "[Feat] GEMMFwdOp knobs", "state": "OPEN", "body": None}]
+        prs += [{"number": 2950, "title": "[Perf][foundry][GEMM] d", "state": "MERGED",
+                 "body": "- bench_gemm tile\n\nOp: GEMMFwdOp\nBenchmark: benchmarks.ops.bench_gemm\nResult: below bar"},
+                {"number": 2960, "title": "[Perf][foundry][GEMM] e", "state": "MERGED",
+                 "body": "- GEMMFwdOp shares it\n\nOp: BMMFwdOp\nResult: bar met"},
+                {"number": 2970, "title": "[Perf][foundry][GEMM] f", "state": "OPEN",
+                 "body": "- x\r\n\r\nOp: GEMMFwdOp \t\r\nResult: bar met\r\n"}]
         found = history.matching_prs(prs, "GEMMFwdOp", "benchmarks.ops.bench_gemm", ["qwen2.5-7b-b64-bfloat16"])
-        self.assertEqual([(pr["number"], pr["matched"]) for pr in found],
-                         [(2834, ["op"]), (2172, ["benchmark", "workload qwen2.5-7b-b64"])])
+        self.assertEqual([(pr["number"], pr["matched"], pr["result"]) for pr in found],
+                         [(2970, ["Op line"], "bar met"), (2950, ["Op line"], "below bar"), (2834, ["op"], None),
+                          (2172, ["benchmark", "workload qwen2.5-7b-b64"], None)])
+        self.assertIn("merged, below bar: [Perf][foundry][GEMM] d", history.render(
+            {"op": "GEMMFwdOp", "pull_requests": found, "search_error": None, "local": [], "local_scope": "here"}))
 
     def test_local_attempts_skip_other_ops_and_malformed_rounds(self) -> None:
         with tempfile.TemporaryDirectory() as folder:

@@ -1,8 +1,9 @@
 """Earlier attempts at an op, collected when a queue round starts and rendered into its brief.
 
 Two sources: the rounds under `rounds` on this machine that worked the same op, and the
-`[Perf]` PRs of the upstream repository whose title or body names the op, its benchmark
-module or one of its workloads. Matches are candidates; the brief says how each matched.
+`[Perf]` PRs of the upstream repository. A PR whose body has an `Op:` line (see
+`topa.gate.trailers`) matches when that line names the op; any other PR matches when its
+title or body names the op, its benchmark module or one of its workloads, and is a candidate.
 """
 
 from __future__ import annotations
@@ -14,7 +15,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
-from topa import sh
+from topa import gate, sh
 
 SECTIONS = ("Stop records", "TileLang knowledge")
 DTYPE = re.compile(r"-(?:b?float\d+|float8\w*|u?int\d+)$")
@@ -87,11 +88,16 @@ def matching_prs(prs: list[dict[str, Any]], op: str, benchmark: str, workloads: 
     for pr in prs:
         if not pr["title"].startswith("[Perf]"):
             continue
-        text = f"{pr['title']}\n{pr.get('body') or ''}"
-        basis = [name for name, pattern in terms if pattern.search(text)]
+        lines = gate.trailers(pr.get("body"))
+        if "Op" in lines:
+            basis = ["Op line"] if lines["Op"] == op else []
+        else:
+            text = f"{pr['title']}\n{pr.get('body') or ''}"
+            basis = [name for name, pattern in terms if pattern.search(text)]
         if basis:
             found.append({key: pr.get(key) for key in ("number", "title", "state", "url", "createdAt",
-                                                        "mergedAt", "closedAt")} | {"matched": basis})
+                                                        "mergedAt", "closedAt")}
+                         | {"matched": basis, "result": lines.get("Result")})
     found.sort(key=lambda pr: pr["number"], reverse=True)
     return found
 
@@ -134,8 +140,9 @@ def render(history: dict[str, Any]) -> str:
             reasons = pr["matched"][:MAX_REASONS]
             if len(pr["matched"]) > MAX_REASONS:
                 reasons.append(f"{len(pr['matched']) - MAX_REASONS} more")
-            lines.append(f"- [#{pr['number']}]({pr['url']}) {pr['state'].lower()}: {_clip(pr['title'], 200)} "
-                         f"(matched: {', '.join(reasons)})")
+            result = f", {_clip(pr['result'], 40)}" if pr.get("result") else ""
+            lines.append(f"- [#{pr['number']}]({pr['url']}) {pr['state'].lower()}{result}: "
+                         f"{_clip(pr['title'], 200)} (matched: {', '.join(reasons)})")
         if len(prs) > MAX_PRS:
             more = len(prs) - MAX_PRS
             lines.append(f"- {more} older {'match is' if more == 1 else 'matches are'} in `prior-attempts.json`.")

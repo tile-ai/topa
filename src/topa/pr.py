@@ -36,7 +36,10 @@ def gate(config: Config, slug: str | None = None) -> Round:
     meta = current.meta
     try:
         validate_round(current.dir, Path(meta["worktree"]), "HEAD", tuple(meta.get("workloads", ())),
-                       meta.get("measured", 0), meta.get("kind", "perf"), meta.get("issue"))
+                       meta.get("measured", 0), meta.get("kind", "perf"), meta.get("issue"),
+                       meta.get("op"), meta.get("benchmark"),
+                       # A queue round whose round.json has no benchmark got a brief without the trailers.
+                       trailers="benchmark" in meta or "op" not in meta)
     except GateError as error:
         raise SystemExit(f"topa gate: FAIL: {error}") from error
     print("topa gate: PASS")

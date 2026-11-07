@@ -227,8 +227,8 @@ def _wiki_work(op: wiki.Op, page: wiki.Page) -> tuple[dict[str, Any], dict[str, 
         f"`device_busy_ms` in microseconds; ratio = comparator / TileOPs):\n\n{op.table()}\n\n"
         f"The op is `{op.name}`. Take these rows and the op's manifest entry, Op, workloads, reference, "
         "tests and benchmark as the whole requirement.")
-    plan = {"kind": "perf", "op": op.name, "wiki": page.url, "nightly_commit": page.commit,
-            "workloads": [row.workload for row in op.rows], "measured": op.measured}
+    plan = {"kind": "perf", "op": op.name, "benchmark": op.benchmark, "wiki": page.url,
+            "nightly_commit": page.commit, "workloads": [row.workload for row in op.rows], "measured": op.measured}
     return plan, {"TITLE": f"bring {op.name} to its fastest comparator", "REQUIREMENT": requirement,
                   "LINK": "The PR links no issue."}
 
@@ -248,7 +248,8 @@ def _issue_work(config: Config, number: int) -> tuple[dict[str, Any], dict[str, 
         requirement += (" The op is the one the issue names, and its rows are the workloads the issue lists; "
                         "copy their benchmark names into `workloads` in `provenance.json`.")
     # A perf PR only refers to its issue: the nightly confirms the result, then the issue closes.
-    link = f"End Summary with the line `{'Refs' if kind == 'perf' else 'Closes'} #{number}`."
+    link = (f"End Summary, above the `Op:` lines, with the line `Refs #{number}`." if kind == "perf"
+            else f"End Summary with the line `Closes #{number}`.")
     plan = {"kind": kind, "issue": number, "issue_url": issue["url"]}
     return plan, {"TITLE": issue["title"], "REQUIREMENT": requirement, "LINK": link}
 
