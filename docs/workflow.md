@@ -8,7 +8,8 @@ its fastest comparator:
    what already works each op.
 2. `topa round start <Op>` creates a TileOPs worktree and branch, a TileFoundry checkout,
    a container with one GPU, and a round directory with the brief. The brief carries the
-   op's rows. Then it starts Claude Code in a herdr pane and tells it to read the brief.
+   op's rows, and the earlier attempts at the op: the upstream `[Perf]` PRs that name it, its
+   benchmark or a workload, and the rounds of the op on this machine (`prior-attempts.json`). Then it starts Claude Code in a herdr pane and tells it to read the brief.
 3. The agent runs on the host. A PreToolUse hook sends each shell line that runs anything
    but `git`, `gh`, `codex`, `topa`, a file operation or a text tool into the round's
    container over SSH.

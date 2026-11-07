@@ -8,7 +8,7 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
-from topa import config, gate, ledger, review, wiki
+from topa import config, gate, history, ledger, review, wiki
 from topa.container import foreign_files
 from topa.hook import decide
 from topa.round import CLEAR_CLAUDE_ENV, _issue_work, brief, drop_branch, kit, render, round_slug, start
@@ -352,7 +352,7 @@ class RoundTests(unittest.TestCase):
                 start(defaults(), issue=2812, dry_run=True)
             values = {name: name for name in ("SLUG", "ROUND_DIR", "UPSTREAM", "BRANCH", "TILEOPS_BASE",
                                                "TILEOPS_WORKTREE", "TILEFOUNDRY_BASE", "TILEFOUNDRY_SOURCE",
-                                               "KNOWLEDGE", "TOPA")}
+                                               "KNOWLEDGE", "TOPA", "PRIOR_ATTEMPTS")}
             text = brief("general", values | _issue_work(defaults(), 2812)[1])
             self.assertIn("> ## Repro\n> x = 1e36", text)
             self.assertIn("`Closes #2812`", text)
@@ -470,3 +470,76 @@ class ReviewTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class HistoryTests(unittest.TestCase):
+    PRS = [
+        {"number": 2172, "title": "[Perf][GEMM] Hide the epilogue", "state": "CLOSED", "url": "u2172",
+         "body": "Benchmarks with `bench_gemm` on qwen2.5-7b-qkv-b64."},
+        {"number": 2834, "title": "[Perf][foundry][GEMM] Fill one wave", "state": "MERGED", "url": "u2834",
+         "body": "GEMMFwdOp rows"},
+        {"number": 1567, "title": "[Perf][GroupedGemm] forward out=", "state": "CLOSED", "url": "u1567",
+         "body": "bench_grouped_gemm only"},
+        {"number": 2900, "title": "[Feat] Add GEMMFwdOp knobs", "state": "OPEN", "url": "u2900", "body": ""},
+    ]
+
+    def test_prs_match_on_op_benchmark_or_workload_newest_first(self) -> None:
+        found = history.matching_prs(self.PRS, "GEMMFwdOp", "benchmarks.ops.bench_gemm",
+                                     ["qwen2.5-7b-qkv-b64-bfloat16"])
+        self.assertEqual([pr["number"] for pr in found], [2834, 2172])
+        self.assertEqual(found[0]["matched"], ["op"])
+        self.assertEqual(found[1]["matched"], ["benchmark", "workload qwen2.5-7b-qkv-b64"])
+
+    def test_local_attempts_read_the_rounds_of_the_op(self) -> None:
+        with tempfile.TemporaryDirectory() as folder:
+            rounds = Path(folder)
+            def make(slug: str, op: str, report: str | None = None, result: str | None = None) -> None:
+                (rounds / slug).mkdir()
+                (rounds / slug / "round.json").write_text(json.dumps({"round": slug, "op": op}))
+                if report is not None:
+                    (rounds / slug / "report.md").write_text(report)
+                if result is not None:
+                    (rounds / slug / "provenance.json").write_text(json.dumps({"result": result}))
+            make("gemmfwd-r1", "GEMMFwdOp", "## Stop records\n(2) " + "x" * 2000 + "\n## Other\nno", "below bar")
+            make("gemmfwd-r2", "GEMMFwdOp")
+            make("gemmfwd-r3", "GEMMFwdOp")
+            make("softmax-r1", "SoftmaxFwdOp", "## Stop records\nno")
+            (rounds / "broken").mkdir()
+            (rounds / "broken" / "round.json").write_text("{")
+            (rounds / "listed").mkdir()
+            (rounds / "listed" / "round.json").write_text("[]")
+            (rounds / "gemmfwd-r2" / "provenance.json").write_text("null")
+            found = history.local_attempts(rounds, "GEMMFwdOp", "tile-ai/TileOPs", exclude="gemmfwd-r3")
+        self.assertEqual(sorted(a["round"] for a in found), ["gemmfwd-r1", "gemmfwd-r2"])
+        first = next(a for a in found if a["round"] == "gemmfwd-r1")
+        self.assertEqual(first["result"], "below bar")
+        self.assertTrue(first["excerpts"]["Stop records"].endswith("[...]"))
+        self.assertNotIn("TileLang knowledge", first["excerpts"])
+        text = history.render({"op": "GEMMFwdOp", "pull_requests": [], "search_error": None,
+                               "local": found, "local_scope": "rounds here"})
+        self.assertIn("incomplete: no report.md", text)
+        self.assertIn("No fetched `[Perf]` PR names `GEMMFwdOp`", text)
+
+    def test_a_failed_search_is_not_an_empty_history(self) -> None:
+        cfg = defaults()
+        error = history.sh.CommandError(["gh"], 1, "HTTP 502")
+        with tempfile.TemporaryDirectory() as folder, mock.patch("topa.config.HOME", Path(folder)), \
+                mock.patch("topa.history.sh.run", side_effect=error):
+            found = history.collect(cfg, "GEMMFwdOp", "benchmarks.ops.bench_gemm", [], exclude="x")
+        self.assertEqual(found["search_error"], "HTTP 502")
+        self.assertIn("PR search unavailable: HTTP 502", history.render(found))
+
+    def test_render_bounds_the_pr_list(self) -> None:
+        prs = [{"number": n, "title": "[Perf] t", "state": "MERGED", "url": "u", "matched": ["op"]}
+               for n in range(20, 0, -1)]
+        text = history.render({"op": "AOp", "pull_requests": prs, "search_error": None,
+                               "local": [], "local_scope": "rounds here"})
+        self.assertEqual(text.count("\n- [#"), history.MAX_PRS)
+        self.assertIn(f"{20 - history.MAX_PRS} older matches are in `prior-attempts.json`", text)
+        prs[0]["matched"] = [f"workload w{i}" for i in range(2000)]
+        prs[1]["title"] = "[Perf] " + "t" * 20000
+        text = history.render({"op": "AOp", "pull_requests": prs, "search_error": None, "search_truncated": True,
+                               "local": [], "local_scope": "rounds here"})
+        self.assertIn("workload w2, 1997 more)", text)
+        self.assertLessEqual(len(text), history.MAX_SECTION + 100)
+        self.assertIn(f"stopped at GitHub's {history.SEARCH_CAP} results", text)

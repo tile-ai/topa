@@ -24,6 +24,19 @@ Optimize the op with [TileFoundry](https://github.com/tile-ai/TileFoundry) towar
 - Do not change `benchmarks/`, `workloads/`, `src/tileops/manifest/`, `scripts/` or
   `.github/`; `topa gate` rejects such a diff.
 
+## Prior attempts
+
+{{PRIOR_ATTEMPTS}}
+
+- Before choosing experiments, read the attempts above that bear on the rows. When topa
+  collected them, the full list is in `prior-attempts.json`.
+- Under `## Prior attempts used` in `report.md`, cite each source that changes your plan,
+  and say whether you reuse its approach, skip it, or test it again. When you test an
+  earlier approach again, name the condition that changed.
+- Write `none relevant` or `history unavailable` there when that is the case.
+- Check an earlier conclusion against this round's TileOPs, TileFoundry and GPU before you
+  rely on it.
+
 ## Stages
 
 - Find TileFoundry's commands with `tilefoundry --help`, each subcommand's `--help`,
