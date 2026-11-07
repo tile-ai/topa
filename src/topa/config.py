@@ -27,7 +27,7 @@ DEFAULTS: dict[str, Any] = {
     "docker_host": None,
     "docker_bootstrap": None,
     "proxy_host": None,
-    "no_proxy": "localhost,127.0.0.1",
+    "no_proxy": None,
     "upstream": "tile-ai/TileOPs",
     "fork_owner": None,
     # Unset, the round agent runs its own defaults.
@@ -53,7 +53,7 @@ class Config:
     docker_host: str | None
     docker_bootstrap: str | None
     proxy_host: str | None
-    no_proxy: str
+    no_proxy: str | None
     upstream: str
     fork_owner: str | None
     model: str | None

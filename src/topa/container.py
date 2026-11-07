@@ -83,7 +83,7 @@ def _spellings(*paths: Path) -> list[Path]:
 
 def proxy_env(config: Config) -> list[str]:
     """The host's proxy settings, with a loopback proxy address replaced by `proxy_host`,
-    the host as the container reaches it."""
+    the host as the container reaches it, and the bypass list replaced by `no_proxy`."""
     env = []
     for var in PROXY_NAMES:
         value = os.environ.get(var)
@@ -92,7 +92,9 @@ def proxy_env(config: Config) -> list[str]:
         if value:
             env += ["--env", f"{var}={value}"]
     for var in ("NO_PROXY", "no_proxy"):
-        env += ["--env", f"{var}={config.no_proxy}"]
+        value = config.no_proxy or os.environ.get(var)
+        if value:
+            env += ["--env", f"{var}={value}"]
     return env
 
 

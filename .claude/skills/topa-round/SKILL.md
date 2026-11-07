@@ -26,7 +26,7 @@ Run `topa` from `PATH`. State lives in `~/.topa/`:
 
 - A message to an agent is one instruction in plain text, at most 4000 characters.
   Put long material in a file in the round directory and name the file.
-- Change the brief templates (`~/topa/src/topa/kit/round/`) for future rounds,
+- Change the brief templates (`src/topa/kit/round/` in this repository) for future rounds,
   never a running round's `brief.md`. To reach a running round, use `say`.
 - `stop` without `--rm` stops the agent and the container (the GPU is free) and archives
   the agent's session transcripts into `rounds/<slug>/session/`. The worktree, the branch and the
@@ -36,7 +36,7 @@ Run `topa` from `PATH`. State lives in `~/.topa/`:
 - If `rounds/<slug>/foundry.patch` exists after a stop, the round changed TileFoundry
   source, which the brief forbids. Tell the user.
 - TileLang facts a round found are in its `report.md` under `## TileLang knowledge`.
-  Promoting them into `~/topa/src/topa/knowledge/tilelang.md` is a human decision:
+  Promoting them into `src/topa/knowledge/tilelang.md` is a human decision:
   show them, do not merge them unasked.
 
 ## Reviewing a round's PR
