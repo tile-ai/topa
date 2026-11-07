@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 import re
 import subprocess
 import tempfile
@@ -8,7 +9,7 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
-from topa import config, gate, history, ledger, review, wiki
+from topa import config, gate, history, ledger, review, setup_cmd, wiki
 from topa.container import foreign_files
 from topa.hook import decide
 from topa.round import CLEAR_CLAUDE_ENV, _issue_work, brief, drop_branch, kit, render, round_slug, start
@@ -42,6 +43,22 @@ def filled(name: str, result: str = "bar met", kind: str = "perf") -> str:
 
 def git(repo: Path, *args: str) -> str:
     return subprocess.run(["git", "-C", str(repo), *args], check=True, capture_output=True, text=True).stdout.strip()
+
+
+class ConfigTests(unittest.TestCase):
+    def test_every_setting_is_documented(self) -> None:
+        usage = (Path(__file__).parents[1] / "docs" / "usage.md").read_text()
+        self.assertEqual([name for name in config.DEFAULTS if f"`{name}`" not in usage], [])
+
+    def test_first_run_writes_a_config_that_loads_then_asks_for_the_reviewer(self) -> None:
+        env = {name: value for name, value in os.environ.items() if not name.startswith("TOPA_")}
+        with tempfile.TemporaryDirectory() as folder, mock.patch.dict(os.environ, env, clear=True), \
+                mock.patch.object(config, "HOME", Path(folder)), \
+                mock.patch.object(config, "CONFIG", Path(folder, "config.toml")):
+            with self.assertRaisesRegex(SystemExit, "set reviewer"):
+                setup_cmd.setup(config.load())
+            self.assertTrue(config.CONFIG.is_file())
+            self.assertEqual(config.load(), defaults(reviewer=None))
 
 
 class GateTests(unittest.TestCase):

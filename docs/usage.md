@@ -35,12 +35,30 @@ export PATH="$HOME/topa/.venv/bin:$PATH"
 mkdir -p ~/.topa && topa config --default > ~/.topa/config.toml
 ```
 
-Set `tileops_repo`, `tilefoundry_repo`, `worktree_root`, `fork_owner` and `reviewer` in
-that file, and `gpu_exclude` to the cards topa must not use. `reviewer` is the coding
-agent command a round runs on the host, from the TileOPs worktree, to review its diff: it
-starts a fresh session apart from the round agent, cannot write, takes the prompt as its
-last argument and prints the review. A config file from an older topa fails to load until
-you delete its `tracker` line. Then:
+Set at least `tileops_repo`, `tilefoundry_repo`, `worktree_root` and `reviewer` in that
+file; a `TOPA_<NAME>` environment variable overrides one setting for one command.
+
+| Setting | What it sets | Unset |
+| --- | --- | --- |
+| `tileops_repo` | The TileOPs checkout rounds branch from | `~/TileOPs` |
+| `tilefoundry_repo` | The TileFoundry checkout rounds read | `~/TileFoundry` |
+| `worktree_root` | Where round worktrees go | `~/TileOPs-worktrees` |
+| `runner_image` | The TileOPs runner image the agent image builds on | the TileOPs CI image |
+| `agent_image` | The tag `topa setup` builds | `topa:agent` |
+| `gpu` | The one card every round uses | topa picks a free card |
+| `gpu_exclude` | Cards topa never uses | none |
+| `docker_host` | `DOCKER_HOST` for topa's Docker calls | Docker's default |
+| `docker_bootstrap` | A command run before Docker is used, such as one starting a rootless daemon | none |
+| `proxy_host` | The host as the container reaches it; replaces a loopback address in the host's proxy variables | the variables pass unchanged |
+| `no_proxy` | The container's proxy bypass list | the host's `NO_PROXY` |
+| `upstream` | The repository PRs open against | `tile-ai/TileOPs` |
+| `fork_owner` | The fork a round pushes to | the `gh` login |
+| `model`, `effort` | The round agent's model and effort | the agent's own defaults |
+| `reviewer` | The coding agent command a round reviews its diff with, run on the host from the TileOPs worktree: a fresh session apart from the round agent that cannot write, takes the prompt as its last argument and prints the review | required |
+| `tilefoundry_commit` | The TileFoundry commit new rounds read | the newest main |
+| `max_rounds` | How many rounds may be live at once | 2 |
+
+A config file from an older topa fails to load until you delete its `tracker` line. Then:
 
 ```bash
 topa setup       # pulls the runner image and builds topa:agent
