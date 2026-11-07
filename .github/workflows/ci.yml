@@ -13,8 +13,8 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  test:
-    name: test (python ${{ matrix.python }})
+  unittest:
+    name: unittest (python ${{ matrix.python }})
     runs-on: ubuntu-latest
     timeout-minutes: 10
     strategy:
