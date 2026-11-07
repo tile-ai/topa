@@ -9,8 +9,8 @@ from pathlib import Path
 from unittest import mock
 
 from topa import config, gate, ledger, review, wiki
-from topa.hook import decide
 from topa.container import foreign_files
+from topa.hook import decide
 from topa.round import CLEAR_CLAUDE_ENV, _issue_work, brief, drop_branch, kit, render, round_slug, start
 
 HIR = 'class Operator:\n    def kernel(self, x):\n        return tf.schedule((x,), op=T.cuda.sm90.Wgmma(n=16))\n'

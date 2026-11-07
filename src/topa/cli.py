@@ -8,7 +8,8 @@ import sys
 from pathlib import Path
 from typing import Any
 
-from topa import __version__, config as config_module, ledger
+from topa import __version__, ledger
+from topa import config as config_module
 
 
 def _print_json(value: Any) -> None:
