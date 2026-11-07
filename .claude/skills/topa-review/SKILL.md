@@ -11,7 +11,7 @@ repository of `topa config`. Set `GH_CONFIG_DIR` to post as another `gh` account
 ## 1. Prepare
 
 Run `topa review prepare <PR>`. It prints `dir`, `worktree` (a checkout of the PR head)
-and `checklists`. `dir` holds `pr.json` (title, body, author, its association, base, head, changed files),
+and `checklists`. `dir` holds `pr.json` (title, body, author, association, base, head, changed files),
 `pr.diff`, `threads.json` (unresolved threads topa started) and `comments.json`
 (what others wrote).
 
