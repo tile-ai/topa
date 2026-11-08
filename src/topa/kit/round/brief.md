@@ -75,6 +75,25 @@ Exit: the verification passes.
 Exit: no blocking or major finding is left. A blocking or major finding still disputed
 after two reviews ends the round: follow [Ending without a PR](#ending-without-a-pr).
 
+## Final review
+
+1. Start a subagent that has not seen this round. Give it the worktree, the diff against
+   the current `tileops_base`, and the `topa review` checklists in `{{CHECKLISTS}}`.
+   Withhold your self-review.
+2. Ask it to read each changed file in full, apply `general.md` and each checklist whose
+   `Apply when` line the diff meets, and report only these findings:
+   - a correctness fault that blocks the PR;
+   - comment bloat: a failed `Reason in comments` row;
+   - test bloat: a `shrink` or `delete` verdict of `tests.md`;
+   - code bloat: a failed `One copy`, `Single use` or `Scope` row.
+3. Save its report as `evidence/final-review-<n>.md`.
+4. Fix each finding as a cleanup change. Ignore findings of any other kind.
+5. After a fix, run cleanup steps 5-6, then run one more pass.
+
+Exit: a pass with no finding, or the second pass. A blocking fault the second pass still
+finds ends the round: follow [Ending without a PR](#ending-without-a-pr). Write each other
+finding the second pass leaves under `## Final review` in `report.md`.
+
 ## PR
 
 1. Rebase onto the newest `{{UPSTREAM}}` main.
@@ -82,18 +101,19 @@ after two reviews ends the round: follow [Ending without a PR](#ending-without-a
 3. Title the commit as [PR files](#pr-files) says, with no authorship trailer.
 4. Run cleanup steps 5-6.
 5. Run the review on the final diff and evidence.
-6. Set `candidate_commit` in `provenance.json` to HEAD.
-7. Fill in the files [PR files](#pr-files) lists, where they are. {{LINK}}
-8. Replace every `<...>`, and add no `## ` section to the body.
-9. Leave out of the PR body and comments: local paths, raw logs, and the order things
-   were tried.
-10. Run `{{TOPA}} pr`.
-11. Re-read the evidence and the diff.
-12. Run `{{TOPA}} pr --reviewed`. Never use `gh pr create`, `gh pr edit` or merge.
-13. Report the PR link.
-14. Fix each CI failure and each review comment you agree with in this session.
-15. Answer each other review comment with a test, a measurement or a rule.
-16. After a fix or a base move, repeat steps 1-12.
+6. Before the PR first opens, run the [Final review](#final-review).
+7. Set `candidate_commit` in `provenance.json` to HEAD.
+8. Fill in the files [PR files](#pr-files) lists, where they are. {{LINK}}
+9. Replace every `<...>`, and add no `## ` section to the body.
+10. Leave out of the PR body and comments: local paths, raw logs, and the order things
+    were tried.
+11. Run `{{TOPA}} pr`.
+12. Re-read the evidence and the diff.
+13. Run `{{TOPA}} pr --reviewed`. Never use `gh pr create`, `gh pr edit` or merge.
+14. Report the PR link.
+15. Fix each CI failure and each review comment you agree with in this session.
+16. Answer each other review comment with a test, a measurement or a rule.
+17. After a fix or a base move, repeat steps 1-13.
 
 Exit: the PR is open, CI passes, and every review comment is fixed or answered.
 

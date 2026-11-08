@@ -411,7 +411,7 @@ class RoundTests(unittest.TestCase):
                 start(defaults(), issue=2812, dry_run=True)
             values = {name: name for name in ("SLUG", "ROUND_DIR", "UPSTREAM", "BRANCH", "TILEOPS_BASE",
                                                "TILEOPS_WORKTREE", "TILEFOUNDRY_BASE", "TILEFOUNDRY_SOURCE",
-                                               "KNOWLEDGE", "TOPA", "PRIOR_ATTEMPTS", "REVIEWER")}
+                                               "KNOWLEDGE", "TOPA", "PRIOR_ATTEMPTS", "REVIEWER", "CHECKLISTS")}
             text = brief("general", values | _issue_work(defaults(), 2812)[1])
             self.assertIn("> ## Repro\n> x = 1e36", text)
             self.assertIn("`Closes #2812`", text)

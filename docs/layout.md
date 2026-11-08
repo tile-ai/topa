@@ -13,7 +13,8 @@
 - `src/topa/knowledge/tilelang.md` holds TileLang and ptxas facts that earlier rounds
   confirmed. Rounds read it. People add to it from round reports.
 - `src/topa/kit/review/checklists/` holds what a review checks beyond TileOPs's own docs and CI.
-  `topa review prepare` names the ones the changed paths need.
+  `topa review prepare` names the ones the changed paths need. A round applies them in its
+  final review, before its PR opens.
 - `src/topa/kit/container/` holds the agent image: the TileOPs runner image plus sshd.
 - `src/topa/kit/stage.py` runs in the agent image, once per image and dependency list. It stages, for offline
   install, the wheels TileFoundry needs beyond the runner and the build backends of

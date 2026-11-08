@@ -20,7 +20,7 @@ from importlib.resources import files
 from pathlib import Path
 from typing import Any, Iterable
 
-from topa import container, foundry, history, ledger, sh, wiki
+from topa import container, foundry, history, ledger, review, sh, wiki
 from topa.config import Config
 
 PROMPT = ("Read `brief.md` in the current working directory and complete it. A human may "
@@ -329,6 +329,7 @@ def start(config: Config, name: str | None = None, *, issue: int | None = None, 
             "SLUG": slug, "ROUND_DIR": round_dir, "UPSTREAM": config.upstream, "BRANCH": branch,
             "TILEOPS_BASE": tileops_base, "TILEOPS_WORKTREE": worktree, "TILEFOUNDRY_BASE": prepared.commit,
             "TILEFOUNDRY_SOURCE": source, "KNOWLEDGE": knowledge(), "TOPA": topa, "REVIEWER": config.reviewer,
+            "CHECKLISTS": review.DIRECTORY,
         }
         _write_round_dir(config, round_dir, plan["kind"], values, topa)
         if prior is not None:
