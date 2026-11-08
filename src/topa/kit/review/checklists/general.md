@@ -39,6 +39,7 @@ Apply when `association` in `pr.json` is not `OWNER`, `MEMBER` or `COLLABORATOR`
 | Criterion | Pass | Fail |
 | --- | --- | --- |
 | One copy | When five or more statements, or a call of ten or more arguments, are added: no copy differing only in names and literals exists elsewhere | a copy is added instead of a shared helper, `@T.macro` or argument tuple; cite both |
+| Existing helper | When a helper, macro or constant below the `One copy` size is added: no existing one with the same contract is importable at that site | one is; cite it |
 | Single use | When an internal helper, parameter or flag is added: calls in the repository need it and together use each option it offers | no call needs it, or an option is never used; one caller alone is fine |
 | Scope | When a module-level constant is added: more than one implementation uses it | it serves one implementation; move it to its use site or its class |
 | Positional order | When a parameter is added to an existing function: it is last or keyword-only | it shifts an existing positional parameter |

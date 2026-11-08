@@ -16,6 +16,8 @@ Each entry carries one tag:
   megakernel prototype. Treat it as a hypothesis on the round build until one compile
   confirms it. Write the result in `report.md` (see the last section).
 - **[0.1.12, refuted on 0.1.11]**: seen on 0.1.12, and did not reproduce on the round build.
+- **[0.1.12 round]**: confirmed on the round build: TileLang `0.1.12`, torch `2.13.0+cu132`,
+  CUDA 13.2, driver 595.71.05, H200.
 
 ## 1. Principle: write with the low-level forms
 
@@ -107,6 +109,13 @@ Both fixes together:
 - Nsight Compute, one d576 shape: 1.39 ms to 0.893 ms, IPC 0.94 to 1.22.
 - **Verify in SASS after each change**: count `R2UR`, `LDL`/`STL`, HGMMA and DEPBAR, and
   look for ptxas C75xx warnings. The time alone does not show which change worked.
+
+### Touching the accumulator through memory serializes every WGMMA [0.1.12 round]
+
+- Source: gqavarlenfwd-r1.
+- A `"memory"` clobber or a type-punned read (`*(uint*)&acc`) of a WGMMA accumulator
+  anywhere in the kernel makes ptxas serialize every WGMMA (warning C7514).
+- **Fix**: store the f32 values through a csrc helper with plain stores.
 
 ### WGMMA N is split by gcd [0.1.11]
 
@@ -235,6 +244,9 @@ consumer waits: full[k % stages].wait((k % (2*stages)) / stages)
   - `T.match_buffer(pool[a:b])`: rank rule, then an unbound data variable.
   - `match_buffer` with `view`: the same.
   - Fix: give each ring its own buffer.
+- **`T.view` of a swizzle-annotated shared buffer is a new allocation** [0.1.12 round].
+  Source: gqavarlenfwd-r1.
+  - It is not an alias: the view adds its own shared memory (32 KB in that kernel).
 - **A leading stage axis on the allocation works** [0.1.11].
   - `T.alloc_shared([stages, block_N, dim])` with
     `T.annotate_layout({Ks: make_swizzled_layout(Ks)})` and
@@ -278,6 +290,14 @@ consumer waits: full[k % stages].wait((k % (2*stages)) / stages)
     `TypeError: 'Buffer' object does not support item assignment`.
   - Fix: write shuffle chains and buffer changes in the traced function or in a
     `@T.macro`.
+- **A barrier element passed into a `T.macro` arrives as a `Var`** [0.1.12 round].
+  Source: gqavarlenfwd-r1.
+  - `kfree[s]` as a macro argument is no longer a barrier.
+  - Fix: pass the barrier buffer and the index, and index inside the macro.
+- **Read a kernel's ptxas warnings by compiling its dumped CUDA** [0.1.12 round].
+  Source: gqavarlenfwd-r1.
+  - `nvcc ... -include <each csrc header the kernel pre-includes> -Xptxas -v` shows
+    C75xx warnings and spills.
 - **`Immutable value 't6' is re-bound`** means that a stage body was emitted twice
   [0.1.12].
 - **`asm` as a buffer name breaks codegen without an error** [0.1.12]. It is a C++
