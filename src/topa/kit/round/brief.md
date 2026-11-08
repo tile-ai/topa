@@ -77,22 +77,15 @@ after two reviews ends the round: follow [Ending without a PR](#ending-without-a
 
 ## Final review
 
-1. Start a subagent that has not seen this round. Give it the worktree, the diff against
-   the current `tileops_base`, and the `topa review` checklists in `{{CHECKLISTS}}`.
-   Withhold your self-review.
-2. Ask it to read each changed file in full, apply `general.md` and each checklist whose
-   `Apply when` line the diff meets, and report only these findings:
-   - a correctness fault that blocks the PR;
-   - comment bloat: a failed `Reason in comments` row;
-   - test bloat: a `shrink` or `delete` verdict of `tests.md`;
-   - code bloat: a failed `One copy`, `Single use` or `Scope` row.
-3. Save its report as `evidence/final-review-<n>.md`.
-4. Fix each finding as a cleanup change. Ignore findings of any other kind.
-5. After a fix, run cleanup steps 5-6, then run one more pass.
+1. Have a subagent that has not seen this round review the diff against `tileops_base`
+   with the checklists in `{{CHECKLISTS}}`, without your self-review. Ask only for
+   blocking faults and for comment, test or code bloat.
+2. Save its report as `evidence/final-review-<n>.md`, fix each finding as a cleanup change,
+   and run cleanup steps 5-6.
 
 Exit: a pass with no finding, or the second pass. A blocking fault the second pass still
-finds ends the round: follow [Ending without a PR](#ending-without-a-pr). Write each other
-finding the second pass leaves under `## Final review` in `report.md`.
+finds ends the round: follow [Ending without a PR](#ending-without-a-pr). Write any other
+finding left under `## Final review` in `report.md`.
 
 ## PR
 
