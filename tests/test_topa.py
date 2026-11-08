@@ -450,15 +450,16 @@ class RoundTests(unittest.TestCase):
             repo, round_dir = Path(folder, "repo"), Path(folder, "round")
             subprocess.run(["git", "init", "-q", "-b", "main", str(repo)], check=True)
             git(repo, "-c", "user.name=T", "-c", "user.email=t@example.invalid", "commit", "-q", "--allow-empty", "-m", "a")
-            inside, gone, outside = round_dir / "work" / "cand", round_dir / "work" / "gone", Path(folder, "other")
-            for path in (inside, gone, outside):
+            inside, gone, locked = (round_dir / "work" / name for name in ("cand", "gone", "locked"))
+            neighbor = Path(folder, "round2", "cand")
+            for path in (inside, gone, locked, neighbor):
                 git(repo, "worktree", "add", "-q", "--detach", str(path))
             shutil.rmtree(gone)
-            self.assertEqual(remove_worktrees_under(defaults(tileops_repo=repo), round_dir), 2)
-            listed = git(repo, "worktree", "list", "--porcelain")
-            self.assertNotIn(str(inside), listed)
-            self.assertNotIn(str(gone), listed)
-            self.assertIn(str(outside), listed)
+            git(repo, "worktree", "lock", str(locked))
+            self.assertEqual(remove_worktrees_under(defaults(tileops_repo=repo), round_dir), (2, [locked]))
+            listed = {line.removeprefix("worktree ") for line in git(repo, "worktree", "list", "--porcelain").splitlines()
+                      if line.startswith("worktree ")}
+            self.assertEqual([str(p) in listed for p in (inside, gone, locked, neighbor)], [False, False, True, True])
             self.assertFalse(inside.exists())
 
     def test_ledger_fold(self) -> None:
