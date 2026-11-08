@@ -50,3 +50,15 @@ Apply when `association` in `pr.json` is not `OWNER`, `MEMBER` or `COLLABORATOR`
 - Check each claim in `## Summary` against the diff.
 - Check that `## Summary` names each change to what an existing call returns, raises or times.
 - Apply the `FIXME(staged-rollout)` rule of `docs/code-style.md` to each `xfail`, `skip` or loosened assertion the diff adds.
+
+## Adding a row
+
+This section is for checklist maintainers; it is not a criterion for reviewing a PR. A row
+joins a checklist only when the fault it catches:
+
+- recurred in the review of more than one PR;
+- is caught by no existing row, documented rule or CI check;
+- is decidable by reading the diff and the code it touches or calls, under a `When`
+  condition, with a pass and a fail;
+- leaves legitimate code passing;
+- is named in general terms, with no PR, file or kernel of its own.

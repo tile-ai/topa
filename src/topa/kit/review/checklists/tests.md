@@ -7,7 +7,6 @@ Apply when the diff touches `tests/`, `benchmarks/tests/` or `workloads/`. The r
 | Criterion | Pass | Fail |
 | --- | --- | --- |
 | Case verdict | When a case is added or changed: it reaches a path, dtype, boundary or regression no other case reaches | its cells reach the same paths, dtypes and boundaries (`shrink`: name the axis), or another case catches the same fault (`delete`: name it) |
-| Diff scope | When a case is added: what it asserts can change under the diff, directly or through code the diff changes | nothing it asserts can change under the diff (`delete`), unless it is the last case of a path or boundary |
 | One behavior per function | When a test function is added or changed: every cell runs the same assertions | an `if` on a parameter changes the assertions (`testing.md` § Growth) |
 | Smoke size | When a `smoke` case is added: it adds a new dtype, or reuses a smoke shape | it adds a second smoke shape for a dtype (`testing.md` § Test case policy) |
 | Architecture mark | When an architecture mark is added or moved: dispatch selects that path only on that architecture | another architecture also selects it (`testing.md` § Tests) |

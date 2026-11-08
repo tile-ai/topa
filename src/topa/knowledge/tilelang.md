@@ -239,14 +239,12 @@ consumer waits: full[k % stages].wait((k % (2*stages)) / stages)
 - **A swizzled shared buffer cannot sit at an offset in a larger allocation** [0.1.12].
   All five forms tried fail for TMA destinations:
   - `T.Buffer(data=..., elem_offset=...)`: the alias must cover the whole parent.
-  - `T.view`: no offset.
+  - `T.view`: no offset. On a swizzle-annotated buffer it is also a new allocation, not an
+    alias [0.1.12 round, gqavarlenfwd-r1].
   - `T.reshape(pool[a:b])`: no dtype.
   - `T.match_buffer(pool[a:b])`: rank rule, then an unbound data variable.
   - `match_buffer` with `view`: the same.
   - Fix: give each ring its own buffer.
-- **`T.view` of a swizzle-annotated shared buffer is a new allocation** [0.1.12 round].
-  Source: gqavarlenfwd-r1.
-  - It is not an alias: the view adds its own shared memory (32 KB in that kernel).
 - **A leading stage axis on the allocation works** [0.1.11].
   - `T.alloc_shared([stages, block_N, dim])` with
     `T.annotate_layout({Ks: make_swizzled_layout(Ks)})` and
@@ -294,10 +292,6 @@ consumer waits: full[k % stages].wait((k % (2*stages)) / stages)
   Source: gqavarlenfwd-r1.
   - `kfree[s]` as a macro argument is no longer a barrier.
   - Fix: pass the barrier buffer and the index, and index inside the macro.
-- **Read a kernel's ptxas warnings by compiling its dumped CUDA** [0.1.12 round].
-  Source: gqavarlenfwd-r1.
-  - `nvcc ... -include <each csrc header the kernel pre-includes> -Xptxas -v` shows
-    C75xx warnings and spills.
 - **`Immutable value 't6' is re-bound`** means that a stage body was emitted twice
   [0.1.12].
 - **`asm` as a buffer name breaks codegen without an error** [0.1.12]. It is a C++
@@ -333,4 +327,11 @@ consumer waits: full[k % stages].wait((k % (2*stages)) / stages)
 
 - A round records a new fact under `## TileLang knowledge` in its `report.md`, as its
   brief says, and does not change this file.
-- A person adds the entry after reading the report.
+- A person adds the entry after reading the report, only when the fact:
+  - reproduced on a named build, and carries its tag and source;
+  - does not follow from TileLang's documentation or general CUDA and ptxas knowledge;
+  - comes from an action a kernel author would naturally take again;
+  - states its symptom and its fix;
+  - is not already said by an entry here; a partial overlap extends that entry;
+  - holds beyond the kernel it was seen in, without that kernel's numbers;
+  - saves more debugging than it costs every round to read.
