@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import os
 import re
+import shutil
 import subprocess
 import tempfile
 import unittest
@@ -12,7 +13,17 @@ from unittest import mock
 from topa import config, gate, history, ledger, review, setup_cmd, wiki
 from topa.container import foreign_files
 from topa.hook import decide
-from topa.round import CLEAR_CLAUDE_ENV, _issue_work, brief, drop_branch, kit, render, round_slug, start
+from topa.round import (
+    CLEAR_CLAUDE_ENV,
+    _issue_work,
+    brief,
+    drop_branch,
+    kit,
+    remove_worktrees_under,
+    render,
+    round_slug,
+    start,
+)
 
 HIR = 'class Operator:\n    def kernel(self, x):\n        return tf.schedule((x,), op=T.cuda.sm90.Wgmma(n=16))\n'
 PAGE = Path(__file__).parent / "fixtures" / "Perf-Tracker-2026-11-06.md"
@@ -433,6 +444,22 @@ class RoundTests(unittest.TestCase):
                 with self.subTest(pr), mock.patch("topa.round.pull_request", return_value=pr):
                     drop_branch(defaults(tileops_repo=repo), "perf/x/x-r1")
                     self.assertEqual(bool(git(repo, "branch", "--list", "perf/x/x-r1")), kept)
+
+    def test_removing_a_round_removes_the_worktrees_it_made_inside_its_directory(self) -> None:
+        with tempfile.TemporaryDirectory() as folder:
+            repo, round_dir = Path(folder, "repo"), Path(folder, "round")
+            subprocess.run(["git", "init", "-q", "-b", "main", str(repo)], check=True)
+            git(repo, "-c", "user.name=T", "-c", "user.email=t@example.invalid", "commit", "-q", "--allow-empty", "-m", "a")
+            inside, gone, outside = round_dir / "work" / "cand", round_dir / "work" / "gone", Path(folder, "other")
+            for path in (inside, gone, outside):
+                git(repo, "worktree", "add", "-q", "--detach", str(path))
+            shutil.rmtree(gone)
+            self.assertEqual(remove_worktrees_under(defaults(tileops_repo=repo), round_dir), 2)
+            listed = git(repo, "worktree", "list", "--porcelain")
+            self.assertNotIn(str(inside), listed)
+            self.assertNotIn(str(gone), listed)
+            self.assertIn(str(outside), listed)
+            self.assertFalse(inside.exists())
 
     def test_ledger_fold(self) -> None:
         with tempfile.TemporaryDirectory() as folder:
