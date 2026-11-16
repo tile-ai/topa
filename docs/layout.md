@@ -3,13 +3,16 @@
 ## Repository
 
 - `src/topa/kit/round/brief.md` is the round contract shared by every round.
-  `perf/brief.md` and `general/brief.md` hold the stages of each kind.
+  `perf/brief.md`, `new-op/brief.md` and `general/brief.md` hold the stages of each kind.
+- `foundry/brief.md` holds the TileFoundry text the perf and new-op briefs share, in parts
+  that fill their `{{FOUNDRY_<NAME>}}` placeholders, the states among them.
 - `round start` joins the shared brief with the round's kind and fills the placeholders;
   an unfilled one is an error.
-- Each kind folder also holds the PR text the agent fills in:
-  - `pr-template.md`: the title and a Summary-only body;
-  - `pr-comments.md`: one comment per section, Test Plan and, for perf, the four evidence
-    comments.
+- The agent fills in the PR text:
+  - `<kind>/pr-template.md`: the title and a Summary-only body;
+  - `pr-comments.md`: one comment per section. `general/` has Test Plan alone;
+    `foundry/pr-comments.md` adds the four evidence comments for perf and new-op, and a
+    new-op round's copy drops the `main (us)` column.
 - `src/topa/knowledge/tilelang.md` holds TileLang and ptxas facts that earlier rounds
   confirmed. Rounds read it. People add to it from round reports.
 - `src/topa/kit/review/checklists/` holds what a review checks beyond TileOPs's own docs and CI.
@@ -19,7 +22,8 @@
 - `src/topa/kit/stage.py` runs in the agent image, once per image and dependency list. It stages, for offline
   install, the wheels TileFoundry needs beyond the runner and the build backends of
   TileFoundry and TileOPs.
-- `src/topa/gate.py` is the evidence gate that runs before a PR.
+- `src/topa/gate.py` is the evidence gate that runs before a PR. Its checks also guard the
+  edges of the state graph in `src/topa/states.py`.
 - `src/topa/wiki.py` reads the Perf Tracker page that `scripts/perf_tracker.py` in
   tile-ai/TileOPs writes. Change both together.
 - `.claude/skills/topa-hunt`, `topa-round` and `topa-review` drive these commands when you

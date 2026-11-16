@@ -10,6 +10,7 @@ from typing import Any
 
 from topa import __version__, ledger
 from topa import config as config_module
+from topa.states import STATES
 
 
 def _print_json(value: Any) -> None:
@@ -73,8 +74,16 @@ def _round_status(args: argparse.Namespace) -> int:
     for row in rows:
         pr = row["pr"]
         pr_text = f"#{pr['number']} {pr['state'].lower()}" if pr else "-"
-        print(f"{row['round']:16} {row['state']:9} {row['op'] or '-':24} gpu {row['gpu'] if row['gpu'] is not None else '-':<2} "
+        print(f"{row['round']:16} {row['state']:9} {row['phase'] or '-':7} {row['op'] or '-':24} gpu {row['gpu'] if row['gpu'] is not None else '-':<2} "
               f"agent {row['agent'] or '-':8} pr {pr_text:14} {row['branch'] or ''}")
+    return 0
+
+
+def _round_transition(args: argparse.Namespace) -> int:
+    from topa.round import transition
+
+    event = transition(config_module.load(), args.state, args.reason, args.round)
+    print(f"{event['round']}: {event['from']} -> {event['to']}")
     return 0
 
 
@@ -162,9 +171,9 @@ def parser() -> argparse.ArgumentParser:
 
     rounds = sub.add_parser("round", help="start, steer, inspect and stop rounds").add_subparsers(
         dest="round_command", required=True)
-    p = rounds.add_parser("start", help="start a round on an op of the wiki queue, or on a TileOPs issue")
-    p.add_argument("op", nargs="?")
-    p.add_argument("--issue", type=int, help="work this TileOPs issue instead of an op")
+    p = rounds.add_parser("start", help="start a round on an op, a TileOPs issue, or both")
+    p.add_argument("op", nargs="?", help="an op of the wiki queue, or a spec-only op to add")
+    p.add_argument("--issue", type=int, help="the TileOPs issue the round works")
     p.add_argument("--dry-run", action="store_true")
     p.add_argument("--force", action="store_true", help="start beyond max_rounds")
     p.set_defaults(func=_round_start)
@@ -172,7 +181,12 @@ def parser() -> argparse.ArgumentParser:
     p.add_argument("round")
     p.add_argument("text", nargs="+")
     p.set_defaults(func=_round_say)
-    p = rounds.add_parser("status", help="every round, its agent and its PR")
+    p = rounds.add_parser("transition", help="move a perf or new-op round to its next state (run by the agent)")
+    p.add_argument("state", choices=STATES)
+    p.add_argument("--reason", required=True)
+    p.add_argument("--round", help="round slug; default: the round directory holding the cwd")
+    p.set_defaults(func=_round_transition)
+    p = rounds.add_parser("status", help="every round, its state, its agent and its PR")
     p.add_argument("--all", action="store_true", help="include removed rounds")
     p.add_argument("--json", action="store_true")
     p.set_defaults(func=_round_status)

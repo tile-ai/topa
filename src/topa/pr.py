@@ -14,16 +14,20 @@ from pathlib import Path
 
 from topa import ledger, sh
 from topa.config import Config
-from topa.gate import GateError, read_comments, read_pr, validate_round
+from topa.gate import FOUNDRY_KINDS, GateError, read_comments, read_pr, validate_round
 from topa.round import Round, find, pull_request
 
-CHECKLIST = {
-    "perf": """
+# A new op has no main to measure its own rows against.
+FOUNDRY_CHECKLIST = """
 1. Was final_hir.py analyzed, finalized with schedule finalize, and the kernel written from its TIR?
 2. Do the raw analyze reports justify the chosen placement over the rejected ones?
-3. Was every row of the op measured alternating main, candidate and comparators, and every row of
+3. Was every row of the op measured alternating {cycle}, and every row of
    another op sharing a changed kernel alternating main and candidate?
-4. Does every claim in pr-template.md and pr-comments.md match the evidence?""",
+4. Does every claim in pr-template.md and pr-comments.md match the evidence?"""
+CHECKLIST = {
+    "perf": FOUNDRY_CHECKLIST.format(cycle="main, candidate and comparators"),
+    "new-op": FOUNDRY_CHECKLIST.format(cycle="candidate and comparators")
+    + "\n5. Does the diff add the op the issue asks for, and nothing else?",
     "general": """
 1. Does the diff do everything the issue asks, and nothing it does not?
 2. Does each new test fail on the base and pass on the candidate?
@@ -34,12 +38,15 @@ CHECKLIST = {
 def gate(config: Config, slug: str | None = None) -> Round:
     current = find(config, slug)
     meta = current.meta
+    # The admitted inventory comes from the ledger, which the round's agent does not write.
+    inventory = tuple(ledger.rounds().get(current.slug, {}).get("inventory", ()))
     try:
         validate_round(current.dir, Path(meta["worktree"]), "HEAD", tuple(meta.get("workloads", ())),
                        meta.get("measured", 0), meta.get("kind", "perf"), meta.get("issue"),
                        meta.get("op"), meta.get("benchmark"),
                        # A queue round whose round.json has no benchmark got a brief without the trailers.
-                       trailers="benchmark" in meta or "op" not in meta)
+                       trailers=meta.get("kind") == "new-op" or "benchmark" in meta or "op" not in meta,
+                       inventory=inventory)
     except GateError as error:
         raise SystemExit(f"topa gate: FAIL: {error}") from error
     print("topa gate: PASS")
@@ -66,8 +73,13 @@ def _post_comments(config: Config, number: int, comments: list[tuple[str, str]],
 
 
 def open_pr(config: Config, slug: str | None = None, *, reviewed: bool = False, watch: bool = True) -> str:
-    current = gate(config, slug)
-    kind = current.meta.get("kind", "perf")
+    """Gate the round, then publish its PR; a perf or new-op round must be in state PR."""
+    found = find(config, slug)
+    kind = found.meta.get("kind", "perf")
+    phase = ledger.rounds().get(found.slug, {}).get("phase")
+    if kind in FOUNDRY_KINDS and phase != "PR":
+        raise SystemExit(f"topa pr: the round is in state {phase}; run `topa round transition PR` first")
+    current = gate(config, found.slug)
     sh.note("Artifact checks passed. Re-open the actual files before creating the PR:\n" + CHECKLIST[kind]
             + "\n\nIf any answer is no or uncertain, continue the round instead of opening a PR.")
     if not reviewed:

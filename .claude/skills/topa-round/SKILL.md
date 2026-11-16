@@ -13,11 +13,11 @@ Run `topa` from `PATH`. State lives in `~/.topa/`:
 
 | The user wants | Run |
 | --- | --- |
-| an overview | `topa round status` (`--all` includes removed rounds) |
+| an overview | `topa round status` (`--all` includes removed rounds; the third column is a perf or new-op round's state) |
 | one round's history | `topa round log <slug>` |
 | what the agent is doing | `herdr agent read <pane>` (pane from status) |
 | to tell the agent something | `topa round say <slug> "<text>"` |
-| a new round | `topa round start <Op>` or `topa round start --issue <N>` (`--dry-run` first if unsure) |
+| a new round | `topa round start <Op> [--issue <N>]` or `topa round start --issue <N>` (`--dry-run` first if unsure) |
 | to stop the agent, keep everything | `topa round stop <slug>` |
 | to release everything | `topa round stop <slug> --rm` |
 | to run a command against a TileOPs branch outside a round | `cd <worktree> && topa run <cmd>` |
@@ -26,6 +26,7 @@ Run `topa` from `PATH`. State lives in `~/.topa/`:
 
 - A message to an agent is one instruction in plain text, at most 4000 characters.
   Put long material in a file in the round directory and name the file.
+- The agent moves its round with `topa round transition`; do not run it for the agent.
 - Change the brief templates (`src/topa/kit/round/` in this repository) for future rounds,
   never a running round's `brief.md`. To reach a running round, use `say`.
 - `stop` without `--rm` stops the agent and the container (the GPU is free) and archives
@@ -42,7 +43,7 @@ Run `topa` from `PATH`. State lives in `~/.topa/`:
 ## Reviewing a round's PR
 
 Read `rounds/<slug>/report.md`, `provenance.json`, the PR and its comments.
-`topa gate --round <slug>` rechecks the evidence. For a perf round, report the result
-(`bar met` or `below bar`), the rows still behind their fastest comparator and any row
-slower than main. For any round, report whether the PR resolves its issue and any
+`topa gate --round <slug>` rechecks the evidence. For a perf or new-op round, report the
+result (`bar met` or `below bar`), the rows still behind their fastest comparator and any
+row slower than main. For any round, report whether the PR resolves its issue and any
 TileFoundry issue the round filed.

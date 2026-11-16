@@ -69,7 +69,7 @@ herdr server     # keep it running in its own terminal
 
 ```bash
 topa hunt                  # the queue of ops behind, with their rows and rounds
-topa round start <Op>      # start an agent on one op of the queue
+topa round start <Op>      # start an agent on one op of the queue, or on a spec-only op to add
 ```
 
 `topa hunt` reads the newest `Perf-Tracker-<date>` page of the

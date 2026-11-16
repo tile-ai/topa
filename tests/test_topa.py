@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import contextlib
 import json
 import os
 import re
@@ -10,20 +11,31 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
-from topa import config, gate, gpu, history, ledger, review, setup_cmd, wiki
+from topa import config, gate, gpu, history, ledger, pr, review, setup_cmd, states, wiki
 from topa.container import foreign_files
 from topa.hook import decide
 from topa.round import (
     CLEAR_CLAUDE_ENV,
+    KINDS,
+    _entry,
+    _fetch_main,
     _issue_work,
+    _spec_only,
     brief,
     drop_branch,
+    entry_field,
+    foundry_text,
+    inventory,
     kit,
+    manifest_entry,
+    pr_comments,
     remove_worktrees_under,
     render,
     round_slug,
     start,
+    transition,
 )
+from topa.round import status as round_status
 
 HIR = 'class Operator:\n    def kernel(self, x):\n        return tf.schedule((x,), op=T.cuda.sm90.Wgmma(n=16))\n'
 PAGE = Path(__file__).parent / "fixtures" / "Perf-Tracker-2026-11-06.md"
@@ -41,8 +53,9 @@ def page(text: str | None = None) -> wiki.Page:
 
 def filled(name: str, result: str = "bar met", kind: str = "perf") -> str:
     """A kit PR file with every placeholder filled, as a round fills it."""
-    text = (kit() / kind / name).read_text()
-    title = "[Perf][foundry][Test] Schedule the kernel" if kind == "perf" else "[BugFix][Norm] Keep the row mean"
+    text = pr_comments(kind) if name == "pr-comments.md" else (kit() / kind / name).read_text()
+    title = {"perf": "[Perf][foundry][Test] Schedule the kernel", "new-op": "[Feat][foundry][Test] Add AFwdOp",
+             "general": "[BugFix][Norm] Keep the row mean"}[kind]
     text = re.sub(r"^# \[.*", f"# {title}", text)
     text = re.sub(r"<work/final_hir\.py[^\n]*>", HIR.rstrip("\n"), text)
     text = text.replace("sha256:<image digest>", "sha256:" + "a" * 64)
@@ -50,6 +63,19 @@ def filled(name: str, result: str = "bar met", kind: str = "perf") -> str:
     text = text.replace("Op: <Op>", "Op: AFwdOp").replace("<benchmark module>", "benchmarks.ops.bench_a")
     text = re.sub(r"^<[^\n]*>$", "1", text, flags=re.MULTILINE)
     return gate.PLACEHOLDER.sub("1", text)
+
+
+MANIFEST_PATH = "src/tileops/manifest/spec/a.yaml"
+MANIFEST = "AFwdOp:\n  family: test\n  status: {a}\n\nBFwdOp:\n  family: test\n  status: {b}\n"
+ROPE_ENTRY = ["  family: rope", "  status: spec-only", "  workloads:",
+              "  - {B: 4, dtype_cases: [{T: float16}, {T: bfloat16}], label: llama3-8b-prefill}"]
+
+
+def issue(number: int, title: str, labels: list[str], body: str = "b", assignees: list[str] = (),
+          state: str = "OPEN") -> dict:
+    return {"number": number, "title": title, "body": body, "state": state, "labels": [{"name": n} for n in labels],
+            "assignees": [{"login": login} for login in assignees],
+            "url": f"https://github.com/tile-ai/TileOPs/issues/{number}"}
 
 
 def git(repo: Path, *args: str) -> str:
@@ -86,6 +112,9 @@ class GateTests(unittest.TestCase):
         git(self.repo, "config", "user.email", "t@example.invalid")
         git(self.repo, "config", "user.name", "T")
         kernel.write_text("old\n")
+        self.manifest = self.repo / "src/tileops/manifest/spec/a.yaml"
+        self.manifest.parent.mkdir(parents=True)
+        self.manifest.write_text(MANIFEST.format(a="spec-only", b="spec-only"))
         git(self.repo, "add", ".")
         git(self.repo, "commit", "-qm", "base")
         self.base = git(self.repo, "rev-parse", "HEAD")
@@ -219,12 +248,100 @@ class GateTests(unittest.TestCase):
                 with self.assertRaisesRegex(gate.GateError, message):
                     gate.validate_round(self.round, self.repo, issue=7)
 
+    def new_op(self) -> None:
+        """Turn the complete perf round into a complete new-op round on issue 7."""
+        body = filled("pr-template.md", kind="new-op").replace("\n\nOp:", "\nCloses #7\n\nOp:")
+        (self.round / "pr-template.md").write_text(body)
+        (self.round / "pr-comments.md").write_text(filled("pr-comments.md", kind="new-op"))
+        self.provenance |= {"workloads": ["1"], "base_tests": {"command": "pytest t", "report": "e/log"}}
+        self.inventory = ("1",)
+        self.commit(**{MANIFEST_PATH: MANIFEST.format(a="implemented", b="spec-only")})
+
+    def validate_new_op(self) -> dict:
+        return gate.validate_round(self.round, self.repo, kind="new-op", issue=7, op="AFwdOp", inventory=self.inventory)
+
+    def commit(self, *paths: str, **texts: str) -> None:
+        for path, text in {**dict.fromkeys(paths, "x\n"), **texts}.items():
+            Path(self.repo, path).parent.mkdir(parents=True, exist_ok=True)
+            Path(self.repo, path).write_text(text)
+        git(self.repo, "add", ".")
+        git(self.repo, "commit", "-qm", "c")
+        self.provenance["candidate_commit"] = git(self.repo, "rev-parse", "HEAD")
+        self.write_provenance()
+
+    def test_new_op_round_passes(self) -> None:
+        """A new op has no main: no main column, and below bar asks for the stop records, not a row faster than main."""
+        self.new_op()
+        self.assertEqual(self.validate_new_op()["result"], "bar met")
+        self.commit("benchmarks/ops/bench_a.py", "workloads/a.py")
+        self.assertEqual(self.validate_new_op()["result"], "bar met")
+        (self.round / "report.md").write_text("## Stop records\n\n(1) holds.\n")
+        self.provenance["result"] = "below bar"
+        self.write_provenance()
+        self.edit("pr-template.md", lambda t: t.replace("Result: bar met", "Result: below bar"))
+        self.edit("pr-comments.md", lambda t: t.replace("**bar met**", "**below bar**")
+                  .replace("| 1 | 1 | 1 | 1 | 1 | 1 |", "| 1 | 1 | 0.5 | 1 | 0.5 | 0.5 |"))
+        self.assertEqual(self.validate_new_op()["result"], "below bar")
+
+    def test_new_op_row_without_a_candidate_time_fails(self) -> None:
+        """No main column checks the candidate cell, so the ratio check must, for 0, nan, text or none."""
+        self.new_op()
+        table = (self.round / "pr-comments.md").read_text()
+        for row in ("| 1 | 0 | 1 | 1 | 1 | 1 |", "| 1 | nan | 1 | 1 | 1 | 1 |", "| 1 | x | 1 | 1 | 1 | 1 |", "| 1 |"):
+            with self.subTest(row):
+                (self.round / "pr-comments.md").write_text(table.replace("| 1 | 1 | 1 | 1 | 1 | 1 |", row))
+                with self.assertRaisesRegex(gate.GateError, "row '1' needs a positive candidate time"):
+                    self.validate_new_op()
+
+    def test_new_op_defect_fails(self) -> None:
+        p = self.provenance
+        cases = {
+            "title does not follow \\[Feat\\]\\[foundry\\]": lambda: self.edit(
+                "pr-template.md", lambda t: t.replace("[Feat][foundry][Test]", "[Perf][foundry][Test]")),
+            "line Closes #7": lambda: self.edit("pr-template.md", lambda t: t.replace("Closes #7", "Refs #7")),
+            "schedule must be an object": lambda: p.pop("schedule"),
+            "findings.json": lambda: (self.round / "findings.json").unlink(),
+            # The admitted inventory, not the provenance workloads, names the cases.
+            "floor lacks the rows behind w2": lambda: (setattr(self, "inventory", ("1", "w2")),
+                                                       p.update(workloads=["1"])),
+            "results table has 1 rows; the op has 2 measured rows": lambda: (
+                setattr(self, "inventory", ("1", "w2")), p["floor"].append({**p["floor"][0], "workload": "w2"})),
+            "no admitted inventory": lambda: setattr(self, "inventory", ()),
+            "more than one timer step behind": lambda: self.edit(
+                "pr-comments.md", lambda t: t.replace("| 1 | 1 | 1 | 1 | 1 | 1 |", "| 1 | 1 | 0.5 | 1 | 0.5 | 0.5 |")
+                .replace("| timer step (us) | 1 |", "| timer step (us) | 0.02 |")),
+            "row 'OtherFwdOp w' is slower than main": lambda: self.edit(
+                "pr-comments.md", lambda t: t.replace("| --- | --- | ---: | ---: |\n| 1 | 1 | 1 | 1 |",
+                                                      "| --- | --- | ---: | ---: |\n| OtherFwdOp | w | 1 | 2 |")),
+            "forbidden paths: scripts/a.py": lambda: self.commit("scripts/a.py"),
+            "set the status of AFwdOp from spec-only to implemented": lambda: self.commit(
+                **{MANIFEST_PATH: MANIFEST.format(a="implemented", b="spec-only").replace("test", "other")}),
+            "status of AFwdOp": lambda: self.commit(**{MANIFEST_PATH: MANIFEST.format(a="nonsense", b="spec-only")}),
+            "status of AFwdOp from": lambda: self.commit(
+                **{MANIFEST_PATH: MANIFEST.format(a="spec-only", b="implemented")}),
+            "to implemented, and change nothing else": lambda: self.commit("src/tileops/manifest/spec/b.yaml"),
+            "base_tests must be an object": lambda: p.pop("base_tests"),
+            "non-empty `## Stop records`": lambda: (p.update(result="below bar"), self.edit(
+                "pr-comments.md", lambda t: t.replace("**bar met**", "**below bar**"))),
+        }
+        for message, defect in cases.items():
+            with self.subTest(message):
+                self.tearDown()
+                self.setUp()
+                p = self.provenance
+                self.new_op()
+                defect()
+                self.write_provenance()
+                with self.assertRaisesRegex(gate.GateError, message):
+                    self.validate_new_op()
+
     def test_unfilled_template_fails(self) -> None:
         for name in ("pr-template.md", "pr-comments.md"):
             with self.subTest(name):
                 self.tearDown()
                 self.setUp()
-                (self.round / name).write_text((kit() / "perf" / name).read_text())
+                (self.round / name).write_text(pr_comments("perf") if name == "pr-comments.md"
+                                               else (kit() / "perf" / name).read_text())
                 with self.assertRaisesRegex(gate.GateError, "placeholder"):
                     self.validate()
 
@@ -319,6 +436,7 @@ class HookTests(unittest.TestCase):
             for command in (
                 "git status && ls",
                 "/x/.venv/bin/topa pr --reviewed",
+                '/x/.venv/bin/topa round transition PR --round x-r1 --reason "published"',
                 'gh issue view 1 2>&1 | head -300; echo "rc=$?"',
                 'cd /x && grep -n "hir\\|iteration" gate.py | head -60',
                 "git log --oneline\ncat notes.md > /dev/null 2>&1",
@@ -379,56 +497,164 @@ class RoundTests(unittest.TestCase):
         long = round_slug("FusedAddRMSNormPerTokenQuantFwdOp", [])
         self.assertRegex(long, r"^[a-z][a-z0-9_-]{0,31}$")
 
+    def admit(self, issues: dict | None = None, prs: list | None = None, found: list | None = None,
+              entry: list[str] = ROPE_ENTRY, spec_only: tuple[str, ...] = ("RoPECosSinFwdOp",)):
+        """Mock what admission reads: the fetched main, the manifest, the issues, the PRs and the gh login."""
+        def gh_json(*args):
+            if args[:2] == ("issue", "view"):
+                return issues[int(args[2])]
+            return list(prs or []) if args[:2] == ("pr", "list") else list(found or [])
+
+        folder = tempfile.TemporaryDirectory()
+        self.addCleanup(folder.cleanup)
+        stack = contextlib.ExitStack()
+        self.addCleanup(stack.close)
+        for patch in (mock.patch("topa.ledger.LEDGER", Path(folder.name, "ledger.jsonl")),
+                      mock.patch("topa.sh.require"), mock.patch("topa.round.topa_binary"),
+                      mock.patch("topa.round._fetch_main", return_value="c" * 40),
+                      mock.patch("topa.round._entry", return_value=("src/tileops/manifest/spec/rope.yaml", entry)),
+                      mock.patch("topa.round._spec_only", side_effect=lambda config, commit, names: [
+                          name for name in names if name in spec_only]),
+                      mock.patch("topa.sh.gh_json", side_effect=gh_json),
+                      mock.patch("topa.sh.gh_login", return_value="me")):
+            stack.enter_context(patch)
+
     def test_start_claims_one_round_per_op(self) -> None:
-        with tempfile.TemporaryDirectory() as folder, \
-                mock.patch("topa.ledger.LEDGER", Path(folder, "ledger.jsonl")), \
-                mock.patch("topa.sh.require"), mock.patch("topa.sh.github_remote"), \
-                mock.patch("topa.round.topa_binary"):
-            plan = start(defaults(), "SoftmaxFwdOp", page=page(), dry_run=True)
-            self.assertEqual((plan["round"], plan["branch"]), ("softmaxfwd-r1", "perf/reduction/softmaxfwd-r1"))
-            ledger.append("create", round="softmaxfwd-r1", op="SoftmaxFwdOp")
-            with self.assertRaisesRegex(SystemExit, "round softmaxfwd-r1 already works SoftmaxFwdOp"):
-                start(defaults(), "SoftmaxFwdOp", page=page(), dry_run=True)
-            with self.assertRaisesRegex(SystemExit, "is not in the queue"):
-                start(defaults(), "NoSuchFwdOp", page=page(), dry_run=True)
+        self.admit(entry=["  family: reduction", "  status: implemented"])
+        plan = start(defaults(), "SoftmaxFwdOp", page=page(), dry_run=True)
+        self.assertEqual((plan["round"], plan["branch"]), ("softmaxfwd-r1", "perf/reduction/softmaxfwd-r1"))
+        ledger.append("create", round="softmaxfwd-r1", op="SoftmaxFwdOp")
+        with self.assertRaisesRegex(SystemExit, "round softmaxfwd-r1 already works SoftmaxFwdOp"):
+            start(defaults(), "SoftmaxFwdOp", page=page(), dry_run=True)
+        with self.assertRaisesRegex(SystemExit, "is not in the queue"):
+            start(defaults(), "NoSuchFwdOp", page=page(), dry_run=True)
 
     def test_brief_renders_every_placeholder(self) -> None:
-        for kind in ("perf", "general"):
-            template = (kit() / "brief.md").read_text() + (kit() / kind / "brief.md").read_text()
+        shared = "".join([(kit() / "brief.md").read_text(), *foundry_text().values()])
+        for kind in KINDS:
+            template = shared + (kit() / kind / "brief.md").read_text()
             text = brief(kind, {name: name for name in re.findall(r"\{\{([A-Z_]+)\}\}", template)})
             self.assertNotIn("{{", text)
-            self.assertEqual("### 1. Requirement and comparators" in text, kind == "perf")
+            self.assertEqual("### Implementation rounds" in text, kind != "general")
+            self.assertEqual("round transition" in text, kind != "general")
+            # In state PR a TileFoundry round does not rerun the cleanup and reviews of PR steps 4-6.
+            self.assertEqual("skip steps 4-6" in text, kind != "general")
+            self.assertIn("4. Run cleanup steps 5-6.\n5. Run the review", text)
+            self.assertEqual("### Op and tests" in text, kind == "new-op")
+            self.assertEqual("Add no op." in text, kind == "perf")
+            # Only a perf brief carries earlier attempts.
+            self.assertEqual("PRIOR_ATTEMPTS" in text, kind == "perf")
+        # Every piece of the shared TileFoundry text reaches both kinds that build with TileFoundry.
+        for kind in ("perf", "new-op"):
+            used = set(re.findall(r"\{\{(FOUNDRY_[A-Z_]+)\}\}", (kit() / kind / "brief.md").read_text()))
+            self.assertEqual(used, set(foundry_text()), kind)
         with self.assertRaises(SystemExit):
             render("{{A}} {{B}}", {"A": 1})
 
-    def test_issue_sets_the_kind_and_the_requirement(self) -> None:
-        issues = {
-            2812: {"number": 2812, "title": "[BUG][Norm] LayerNorm loses precision", "body": "## Repro\nx = 1e36",
-                   "labels": [{"name": "bug"}], "url": "https://github.com/tile-ai/TileOPs/issues/2812", "state": "OPEN"},
-            2791: {"number": 2791, "title": "[Perf][GEMM] Close the back-to-back gap", "body": "Rows: `m4096`",
-                   "labels": [], "url": "https://github.com/tile-ai/TileOPs/issues/2791", "state": "OPEN"},
-        }
-        with tempfile.TemporaryDirectory() as folder, \
-                mock.patch("topa.ledger.LEDGER", Path(folder, "ledger.jsonl")), \
-                mock.patch("topa.sh.require"), mock.patch("topa.sh.github_remote"), \
-                mock.patch("topa.round.topa_binary"), \
-                mock.patch("topa.sh.gh_json", side_effect=lambda *args: issues[int(args[2])]):
-            general = start(defaults(), issue=2812, dry_run=True)
-            perf = start(defaults(), issue=2791, dry_run=True)
-            self.assertEqual((general["kind"], general["branch"]), ("general", "fix/issue/issue-2812-r1"))
-            self.assertEqual((perf["kind"], perf["branch"]), ("perf", "perf/issue/issue-2791-r1"))
-            ledger.append("create", **general)
-            with self.assertRaisesRegex(SystemExit, "already works issue #2812"):
-                start(defaults(), issue=2812, dry_run=True)
-            values = {name: name for name in ("SLUG", "ROUND_DIR", "UPSTREAM", "BRANCH", "TILEOPS_BASE",
-                                               "TILEOPS_WORKTREE", "TILEFOUNDRY_BASE", "TILEFOUNDRY_SOURCE",
-                                               "KNOWLEDGE", "TOPA", "PRIOR_ATTEMPTS", "REVIEWER", "CHECKLISTS")}
-            text = brief("general", values | _issue_work(defaults(), 2812)[1])
-            self.assertIn("> ## Repro\n> x = 1e36", text)
-            self.assertIn("`Closes #2812`", text)
-            text = brief("perf", values | _issue_work(defaults(), 2791)[1])
-            self.assertIn("`Refs #2791`", text)
-            self.assertIn("copy their benchmark names into `workloads`", text)
+    def test_issue_routes_to_perf_new_op_or_general(self) -> None:
+        """`[Perf]` wins; then a title that names exactly one spec-only op; then general. A label does not route."""
+        self.admit({number: issue(number, title, labels) for number, title, labels in (
+            (1, "[FEAT][RoPE] Add the cos/sin cache op", ["new-op"]), (2, "[FEAT][RoPE] Add RoPECosSinFwdOp", []),
+            (3, "[Perf] Speed up RoPECosSinFwdOp", []), (4, "[BUG][Norm] Fix SoftmaxFwdOp", ["bug"]),
+            (5, "[FEAT] Add RoPECosSinFwdOp and AFwdOp", []))}, spec_only=("RoPECosSinFwdOp", "AFwdOp"))
+        plans = [start(defaults(), issue=number, dry_run=True) for number in (1, 2, 3, 4)]
+        self.assertEqual([(plan["kind"], plan["branch"], plan.get("op")) for plan in plans], [
+            ("general", "feat/issue/issue-1-r1", None), ("new-op", "feat/rope/ropecossinfwd-r1", "RoPECosSinFwdOp"),
+            ("perf", "perf/issue/issue-3-r1", None), ("general", "fix/issue/issue-4-r1", None)])
+        self.assertEqual((plans[1]["family"], plans[1]["issue"], plans[1]["inventory"]),
+                         ("rope", 2, ["llama3-8b-prefill {T: float16}", "llama3-8b-prefill {T: bfloat16}"]))
+        with self.assertRaisesRegex(SystemExit, "several spec-only ops \\(RoPECosSinFwdOp, AFwdOp\\)"):
+            start(defaults(), issue=5, dry_run=True)
+        ledger.append("create", **plans[1])
+        with self.assertRaisesRegex(SystemExit, "already works RoPECosSinFwdOp"):
+            start(defaults(), "RoPECosSinFwdOp", dry_run=True)
+
+    def test_issue_and_perf_briefs_link_their_issue(self) -> None:
+        bug = issue(2812, "[BUG][Norm] LayerNorm loses precision", ["bug"], "## Repro\nx = 1e36")
+        values = {name: name for name in ("SLUG", "ROUND_DIR", "UPSTREAM", "BRANCH", "TILEOPS_BASE",
+                                           "TILEOPS_WORKTREE", "TILEFOUNDRY_BASE", "TILEFOUNDRY_SOURCE",
+                                           "KNOWLEDGE", "TOPA", "PRIOR_ATTEMPTS", "REVIEWER", "CHECKLISTS",
+                                           "STATE_PATH")}
+        text = brief("general", values | _issue_work(bug, "general")[1])
+        self.assertIn("> ## Repro\n> x = 1e36", text)
+        self.assertIn("`Closes #2812`", text)
+        text = brief("perf", values | _issue_work(issue(2791, "[Perf][GEMM] Close the gap", []), "perf")[1])
+        self.assertIn("`Refs #2791`", text)
+        self.assertIn("copy their benchmark names into `workloads`", text)
+
+    def test_new_op_admission_refuses_work_someone_else_owns(self) -> None:
+        """Issues and PRs of others refuse; the user's own draft PR and a title that only contains the op do not."""
+        mine = {"number": 8, "title": "[Feat] Add RoPECosSinFwdOp", "body": "", "author": {"login": "me"},
+                "url": "u8", "isDraft": True}
+        other = {"number": 9, "title": "[Feat] Rotary cache", "body": "Adds RoPECosSinFwdOp.",
+                 "author": {"login": "alice"}, "url": "u9"}
+        closing = {"number": 10, "title": "[Feat] Rotary", "body": "Closes #2", "author": {"login": "bob"}, "url": "u10"}
+        near = issue(6, "[Feat] Add RoPECosSinFwdOpV2", [])
+        issues = {2: issue(2, "[FEAT][RoPE] Add RoPECosSinFwdOp", []), 3: issue(3, "[FEAT] Add a cache", []),
+                  4: issue(4, "[FEAT] Add RoPECosSinFwdOp", [], assignees=["alice", "me"]),
+                  7: issue(7, "[FEAT] Add RoPECosSinFwdOp", [], state="CLOSED")}
+        cases = [
+            ({"prs": [mine], "found": [near]}, "RoPECosSinFwdOp", None, None),
+            ({"prs": [mine]}, "RoPECosSinFwdOp", 2, None),
+            ({"prs": [mine, other]}, "RoPECosSinFwdOp", 2, "PR #9 by alice already works RoPECosSinFwdOp"),
+            ({"prs": [closing]}, "RoPECosSinFwdOp", 2, "PR #10 by bob"),
+            *[({"prs": [{**closing, "body": body}]}, "RoPECosSinFwdOp", 2, "PR #10 by bob") for body in (
+                "fixed tile-ai/TileOPs#2", "RESOLVES https://github.com/tile-ai/TileOPs/issues/2", "Close: #2")],
+            # Another repository's issue 2, or issue 20, is not this one.
+            *[({"prs": [{**closing, "body": body}]}, "RoPECosSinFwdOp", 2, None) for body in (
+                "Closes other/repo#2", "Fixes https://github.com/other/repo/issues/2", "Closes #20")],
+            ({}, "RoPECosSinFwdOp", 4, "issue #4 is assigned to alice"),
+            ({}, "RoPECosSinFwdOp", 3, "the title of issue #3 does not name RoPECosSinFwdOp"),
+            ({}, "RoPECosSinFwdOp", 7, "issue #7 is closed"),
+            ({"found": [issues[2], issues[4]]}, "RoPECosSinFwdOp", None, "open issues #2, #4 name RoPECosSinFwdOp"),
+            ({"entry": ["  status: implemented"]}, "SoftmaxFwdOp", 2, "SoftmaxFwdOp is implemented, not spec-only"),
+            ({"entry": ROPE_ENTRY[1:]}, "RoPECosSinFwdOp", None, "needs a family and a label"),
+            ({"entry": ROPE_ENTRY[:-1] + ["  - {B: 1, dtype_cases: [{T: float16}]}"]}, "RoPECosSinFwdOp", None,
+             "needs a family and a label"),
+        ]
+        for mocks, op, number, refusal in cases:
+            with self.subTest(refusal or number):
+                self.admit(issues, **mocks)
+                if refusal is None:
+                    plan = start(defaults(), op, issue=number, dry_run=True)
+                    self.assertEqual((plan["kind"], plan.get("issue")), ("new-op", number))
+                    continue
+                with self.assertRaisesRegex(SystemExit, refusal):
+                    start(defaults(), op, issue=number, dry_run=True)
+                self.assertEqual(ledger.rounds(), {})
+
+    def test_manifest_is_read_from_the_fetched_upstream_main(self) -> None:
+        entry = ("# family\n\nRoPECosSinFwdOp:  # cache\n  family: rope\n  ref_api: \"x\"\n  # status: implemented\n"
+                 "  signature:\n    status: implemented\n  status: spec-only\n  workloads:\n"
+                 "  # a comment\n  - {B: 1, dtype_cases: [{T: float16}, {T: [bfloat16, float32]}], label: a}\n"
+                 "  - B: 2\n    label: b\n  roofline: {}\n\nSoftmaxFwdOp:\n  status: implemented\n")
+        rope = manifest_entry(entry, "RoPECosSinFwdOp")
+        self.assertEqual((entry_field(rope, "status"), entry_field(rope, "family")), ("spec-only", "rope"))
+        self.assertEqual(inventory(rope), ["a {T: float16}", "a {T: [bfloat16, float32]}", "b"])
+        self.assertEqual(entry_field(manifest_entry(entry, "SoftmaxFwdOp"), "status"), "implemented")
+        self.assertIsNone(manifest_entry(entry, "RoPECosSinFwd"))
+        with tempfile.TemporaryDirectory() as folder:
+            upstream, local = Path(folder, "upstream"), Path(folder, "local")
+            subprocess.run(["git", "init", "-q", "-b", "main", str(upstream)], check=True)
+            subprocess.run(["git", "init", "-q", "-b", "main", str(local)], check=True)
+            git(local, "remote", "add", "origin", str(upstream))
+            # A refspec without main: `origin/main` never exists, so only FETCH_HEAD has the fetched main.
+            git(local, "config", "remote.origin.fetch", "+refs/heads/other:refs/remotes/origin/other")
+            spec = upstream / "src/tileops/manifest/spec/rope.yaml"
+            spec.parent.mkdir(parents=True)
+            spec.write_text(entry)
+            (spec.parent / "softmax.yaml").write_text("SoftmaxFwdOp:\n  status: spec-only\n")
+            git(upstream, "add", ".")
+            git(upstream, "-c", "user.name=T", "-c", "user.email=t@example.invalid", "commit", "-qm", "a")
+            config_ = defaults(tileops_repo=local)
+            with mock.patch("topa.sh.github_remote", return_value="origin"):
+                commit = _fetch_main(config_)
+            found = [_spec_only(config_, commit, names)
+                     for names in (["SoftmaxFwdOp", "RoPECosSinFwdOp"], ["NoSuchFwdOp"])]
+            self.assertEqual(_entry(config_, commit, "RoPECosSinFwdOp")[0], "src/tileops/manifest/spec/rope.yaml")
+            with self.assertRaisesRegex(SystemExit, "SoftmaxFwdOp has 2 manifest entries"):
+                _entry(config_, commit, "SoftmaxFwdOp")
+        self.assertEqual(found, [["SoftmaxFwdOp", "RoPECosSinFwdOp"], []])
 
     def test_branch_is_dropped_only_when_its_pr_merged_its_tip(self) -> None:
         with tempfile.TemporaryDirectory() as folder:
@@ -469,6 +695,96 @@ class RoundTests(unittest.TestCase):
                 ledger.append(event, path, round="x-r1", **fields)
             view = ledger.rounds(path)["x-r1"]
         self.assertEqual((view["state"], view["pane"], "text" in view), ("running", "w1:p1", False))
+
+
+class TransitionTests(unittest.TestCase):
+    """A new-op round on issue 7, created in REQ."""
+
+    def setUp(self) -> None:
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        root = Path(tmp.name)
+        self.repo = root / "tileops"
+        subprocess.run(["git", "init", "-q", "-b", "main", str(self.repo)], check=True)
+        git(self.repo, "-c", "user.name=T", "-c", "user.email=t@example.invalid", "commit", "-q", "--allow-empty", "-m", "a")
+        for patch in (mock.patch("topa.ledger.LEDGER", root / "ledger.jsonl"), mock.patch("topa.config.HOME", root)):
+            patch.start()
+            self.addCleanup(patch.stop)
+        self.config = defaults()
+        self.dir = self.config.rounds / "x-r1"
+        self.dir.mkdir(parents=True)
+        meta = {"round": "x-r1", "kind": "new-op", "op": "AFwdOp", "issue": 7, "worktree": str(self.repo)}
+        (self.dir / "round.json").write_text(json.dumps(meta))
+        ledger.append("create", **meta, phase="REQ")
+
+    def move(self, target: str) -> dict:
+        return transition(self.config, target, "  the\nreason ", "x-r1")
+
+    def test_the_table_refuses_edges_off_the_graph(self) -> None:
+        with self.assertRaisesRegex(SystemExit, "cannot move from REQ to FLOOR; it can move to HIR, REQ, STOPPED"):
+            self.move("FLOOR")
+        perf, new_op = states.TRANSITIONS["perf"], states.TRANSITIONS["new-op"]
+        self.assertEqual((perf["FLOOR"] - {"FLOOR", "HIR", "REQ", "STOPPED"}, new_op["FLOOR"] - perf["FLOOR"]),
+                         ({"IMPL"}, {"OP"}))
+        self.assertNotIn("OP", perf)
+        # Back to a rework state behind, never ahead; REVIEW reaches PR once the PR is published.
+        self.assertTrue({"HIR", "FLOOR", "OP", "IMPL", "CLEAN", "DONE"} <= new_op["CI"])
+        self.assertNotIn("CLEAN", new_op["HIR"])
+        self.assertIn("PR", new_op["REVIEW"])
+        self.assertNotIn("DONE", new_op)
+        meta = json.loads((self.dir / "round.json").read_text())
+        (self.dir / "round.json").write_text(json.dumps({**meta, "kind": "general"}))
+        with self.assertRaisesRegex(SystemExit, "a general round has no states"):
+            self.move("HIR")
+
+    def test_each_edge_runs_its_checks(self) -> None:
+        self.assertEqual(states.checks("FLOOR", "IMPL"), (gate.check_floor,))
+        self.assertEqual(states.checks("CLEAN", "IMPL"), ())
+        self.assertEqual(states.checks("IMPL", "STOPPED"), (gate.check_stop_records,))
+        rule = mock.Mock(side_effect=gate.GateError("the new rule"))
+        with mock.patch.dict(states.CHECKS, {("REQ", "HIR"): (rule,)}), \
+                self.assertRaisesRegex(SystemExit, "REQ -> HIR: FAIL: the new rule"):
+            self.move("HIR")
+        self.assertEqual((rule.call_args.args[0].dir, rule.call_args.args[0].kind), (self.dir, "new-op"))
+        self.move("HIR")
+        with self.assertRaisesRegex(SystemExit, "HIR -> FLOOR: FAIL: .*provenance.json"):
+            self.move("FLOOR")
+        (self.dir / "check.json").write_text("{}")
+        (self.dir / "provenance.json").write_text(json.dumps(
+            {"reference_check": {"command": "tilefoundry check h.py", "report": "check.json"}}))
+        self.move("FLOOR")
+        with self.assertRaisesRegex(SystemExit, "FLOOR -> STOPPED: FAIL: .*report.md"):
+            self.move("STOPPED")
+        (self.dir / "report.md").write_text("## Stop records\n\nNo comparator.\n")
+        self.move("STOPPED")
+        with self.assertRaisesRegex(SystemExit, "cannot move from STOPPED to REQ; it can move to nothing"):
+            self.move("REQ")
+
+    def test_a_move_is_a_ledger_event_and_status_shows_the_state(self) -> None:
+        self.move("HIR")
+        event = list(ledger.events())[-1]
+        self.assertEqual({key: event[key] for key in ("event", "round", "from", "to", "reason", "commit")},
+                         {"event": "transition", "round": "x-r1", "from": "REQ", "to": "HIR", "reason": "the reason",
+                          "commit": git(self.repo, "rev-parse", "HEAD")})
+        view = ledger.rounds()["x-r1"]
+        self.assertEqual((view["phase"], view["state"], "reason" in view), ("HIR", "starting", False))
+        with mock.patch("topa.sh.herdr", return_value={}):
+            self.assertEqual([row["phase"] for row in round_status(self.config)], ["HIR"])
+
+    def test_review_reaches_pr_only_once_the_pr_is_published(self) -> None:
+        ledger.append("transition", round="x-r1", **{"from": "CLEAN", "to": "REVIEW"})
+        with self.assertRaisesRegex(SystemExit, "REVIEW -> PR: FAIL: the PR is not published yet; move to FINAL"):
+            self.move("PR")
+        ledger.append("pr", round="x-r1", pr="https://github.com/tile-ai/TileOPs/pull/1")
+        self.assertEqual(self.move("PR")["to"], "PR")
+
+    def test_pr_needs_state_pr_for_a_foundry_round_only(self) -> None:
+        with self.assertRaisesRegex(SystemExit, "the round is in state REQ"):
+            pr.open_pr(self.config, "x-r1")
+        meta = json.loads((self.dir / "round.json").read_text())
+        (self.dir / "round.json").write_text(json.dumps({**meta, "kind": "general"}))
+        with mock.patch("topa.pr.gate", side_effect=SystemExit("gated")), self.assertRaisesRegex(SystemExit, "gated"):
+            pr.open_pr(self.config, "x-r1")
 
 
 class EnvironmentTests(unittest.TestCase):

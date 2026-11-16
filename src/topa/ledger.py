@@ -21,7 +21,8 @@ LEDGER = HOME / "ledger.jsonl"
 
 # The event that leaves a round in each state; any other event keeps the state.
 # `create` is written before the first resource exists, so `topa round stop --rm`
-# can find what a start that failed half way left behind.
+# can find what a start that failed half way left behind. A perf or new-op round
+# also has a `phase` on its state graph: REQ from `create`, then each `transition`'s `to`.
 STATES = {"create": "starting", "start": "running", "fail": "failed",
           "stop": "stopped", "remove": "removed"}
 LIVE = {"starting", "running"}
@@ -85,6 +86,9 @@ def rounds(path: Path | None = None) -> dict[str, dict[str, Any]]:
         view["history"].append(record["event"])
         view["updated"] = record["ts"]
         view["state"] = STATES.get(record["event"], view["state"])
+        if record["event"] == "transition":
+            view["phase"] = record["to"]
+            continue
         for key, value in record.items():
             if key not in {"ts", "event", "text"}:
                 view[key] = value

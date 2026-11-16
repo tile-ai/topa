@@ -24,9 +24,9 @@ topa setup
 herdr server &             # agents run in herdr panes
 
 topa hunt                  # the newest nightly's queue of ops behind, from the TileOPs wiki
-topa round start <Op>      # one agent, one GPU, one op
-topa round start --issue <N>   # or one TileOPs issue: bug, feature, docs or perf
-topa round status          # every round, its agent and its PR
+topa round start <Op>      # one agent, one GPU, one op of the queue, or a spec-only op to add
+topa round start --issue <N>   # or one TileOPs issue: bug, feature, docs, perf or a new op
+topa round status          # every round, its state, its agent and its PR
 topa review prepare <PR>   # review a TileOPs PR once, driven by the topa-review skill
 ```
 

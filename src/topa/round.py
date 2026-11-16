@@ -20,8 +20,9 @@ from importlib.resources import files
 from pathlib import Path
 from typing import Any, Iterable
 
-from topa import container, foundry, history, ledger, review, sh, wiki
+from topa import container, foundry, gate, history, ledger, review, sh, states, wiki
 from topa.config import Config
+from topa.gate import FOUNDRY_KINDS
 
 PROMPT = ("Read `brief.md` in the current working directory and complete it. A human may "
           "reach you with `topa round say {slug} \"...\"`; treat that as a new instruction.")
@@ -29,8 +30,16 @@ SAY_LIMIT = 4000
 PLACEHOLDER = re.compile(r"\{\{([A-Z_]+)\}\}")
 
 
-# A TileOPs issue whose title starts with `[Perf]` gets the perf contract.
+# The round kinds; each has a folder of that name in `kit/round/`. The TileFoundry kinds also share
+# the text in `kit/round/foundry/`.
+KINDS = ("perf", "new-op", "general")
+FOUNDRY_PART = re.compile(r"^<!-- ([A-Z_]+) -->\n", re.MULTILINE)
+# A TileOPs issue whose title starts with `[Perf]` gets the perf contract; one whose title names
+# exactly one op the manifest only specifies gets the new-op contract.
 PERF_ISSUE = re.compile(r"\[perf\]", re.IGNORECASE)
+ISSUE_FIELDS = "number,title,body,labels,url,state,assignees"
+OP_NAME = re.compile(r"\b[A-Z][A-Za-z0-9_]*Op\b")
+MANIFEST_SPEC = "src/tileops/manifest/spec/"
 # TileOPs `scripts/ci/types.sh`: the branch prefix of an issue's title type; any other is `fix`.
 BRANCH_PREFIX = {"bench": "bench", "benchmark": "bench", "bug": "fix", "chore": "chore", "design": "design",
                  "doc": "doc", "docs": "doc", "feat": "feat", "maintain": "maintain", "meta": "chore",
@@ -178,16 +187,44 @@ def _cd_pane(pane: str, path: Path) -> None:
 # --- start --------------------------------------------------------------------------
 
 
+def foundry_text() -> dict[str, str]:
+    """The TileFoundry text perf and new-op briefs share: `FOUNDRY_<NAME>` to the text under `<!-- NAME -->`."""
+    parts = FOUNDRY_PART.split((kit() / "foundry" / "brief.md").read_text())
+    return {f"FOUNDRY_{name}": text.strip() for name, text in zip(parts[1::2], parts[2::2])}
+
+
 def brief(kind: str, values: dict[str, Any]) -> str:
     """The shared brief with the *kind* section in place of `{{KIND}}`, every placeholder filled."""
-    shared = (kit() / "brief.md").read_text()
-    return render(shared.replace("{{KIND}}", (kit() / kind / "brief.md").read_text().strip()), values)
+    text = (kit() / "brief.md").read_text().replace("{{KIND}}", (kit() / kind / "brief.md").read_text().strip())
+    # The shared TileFoundry text first: it holds placeholders of its own.
+    for name, part in foundry_text().items():
+        text = text.replace(f"{{{{{name}}}}}", part)
+    return render(text, values)
+
+
+def pr_comments(kind: str) -> str:
+    """The PR comments file a round of *kind* fills in.
+
+    Perf and new-op share the TileFoundry one; a new op has no main, so its results table drops that column.
+    """
+    if kind not in FOUNDRY_KINDS:
+        return (kit() / kind / "pr-comments.md").read_text()
+    lines = (kit() / "foundry" / "pr-comments.md").read_text().splitlines(keepends=True)
+    if kind == "perf":
+        return "".join(lines)
+    header = next(i for i, line in enumerate(lines) if line.startswith("| Workload | main (us) |"))
+    column = lines[header].split("|").index(" main (us) ")
+    for i in range(header, header + 3):
+        cells = lines[i].split("|")
+        lines[i] = "|".join(cells[:column] + cells[column + 1:])
+    return "".join(lines)
 
 
 def _write_round_dir(config: Config, path: Path, kind: str, values: dict[str, Any], topa: Path) -> None:
-    ignore = shutil.ignore_patterns("brief.md", "perf", "general", "__pycache__")
+    ignore = shutil.ignore_patterns("brief.md", *KINDS, "foundry", "__pycache__")
     shutil.copytree(kit(), path, dirs_exist_ok=True, ignore=ignore)
     shutil.copytree(kit() / kind, path, dirs_exist_ok=True, ignore=ignore)
+    (path / "pr-comments.md").write_text(pr_comments(kind))
     (path / "brief.md").write_text(brief(kind, values))
     claude = path / ".claude"
     claude.mkdir(exist_ok=True)
@@ -233,17 +270,161 @@ def _wiki_work(op: wiki.Op, page: wiki.Page) -> tuple[dict[str, Any], dict[str, 
                   "LINK": "The PR links no issue."}
 
 
-def _issue_work(config: Config, number: int) -> tuple[dict[str, Any], dict[str, Any]]:
-    """The plan fields and brief values of a round on TileOPs issue *number*; its body is the requirement."""
-    issue = sh.gh_json("issue", "view", str(number), "--repo", config.upstream,
-                       "--json", "number,title,body,labels,url,state")
+def manifest_entry(text: str, op: str) -> list[str] | None:
+    """The lines under the top-level entry *op* of the manifest YAML *text*; None when it has none."""
+    lines = text.splitlines()
+    start = next((i for i, line in enumerate(lines) if re.fullmatch(rf"{re.escape(op)}:\s*(#.*)?", line)), None)
+    if start is None:
+        return None
+    entry = []
+    for line in lines[start + 1:]:
+        if line.strip() and not line[0].isspace() and not line.startswith("#"):
+            break
+        entry.append(line)
+    return entry
+
+
+def _indent(line: str) -> int:
+    return len(line) - len(line.lstrip())
+
+
+def _keys(entry: list[str]) -> str:
+    """The indent of the entry's own keys."""
+    first = next((line for line in entry if line.strip() and not line.lstrip().startswith("#")), "")
+    return first[:_indent(first)]
+
+
+def entry_field(entry: list[str], key: str) -> str | None:
+    """The scalar *key* of the entry itself, not of a mapping nested deeper."""
+    indent = _keys(entry)
+    for line in entry:
+        found = re.fullmatch(rf"{indent}{key}:\s*[\"']?([A-Za-z0-9_.-]+)[\"']?\s*(#.*)?", line)
+        if found:
+            return found[1]
+    return None
+
+
+def _dtype_cases(workload: str) -> list[str]:
+    """Each `{...}` of the workload's `dtype_cases` list; a workload without the list is one case."""
+    found = re.search(r"\bdtype_cases:\s*\[", workload)
+    if not found:
+        return [""]
+    cases, depth, start = [], 0, 0
+    for i in range(found.end(), len(workload)):
+        if workload[i] in "[{":
+            start = i if depth == 0 else start
+            depth += 1
+        elif workload[i] in "]}":
+            if depth == 0:
+                break
+            depth -= 1
+            if depth == 0:
+                cases.append(workload[start:i + 1])
+    return cases
+
+
+def inventory(entry: list[str]) -> list[str]:
+    """Each workload `label` x dtype case of the entry, as `<label> <case>`; empty when a workload has no label."""
+    indent = len(_keys(entry))
+    workloads: list[str] = []
+    item: int | None = None
+    inside = False
+    for line in entry:
+        stripped = line.strip()
+        if not stripped or stripped.startswith("#"):
+            continue
+        if _indent(line) == indent and stripped.startswith("workloads:"):
+            inside = True
+        elif inside and _indent(line) <= indent and not stripped.startswith("- "):
+            break
+        elif inside:
+            # Each item starts with `- ` at the indent of the first; a deeper line continues it.
+            item = _indent(line) if item is None else item
+            if _indent(line) == item and stripped.startswith("- "):
+                workloads.append(stripped[2:])
+            elif workloads:
+                workloads[-1] += " " + stripped
+    cases = []
+    for workload in workloads:
+        label = re.search(r"\blabel:\s*[\"']?([^,}\s\"']+)", workload)
+        if label is None:
+            return []
+        cases += [f"{label[1]} {case}".rstrip() for case in _dtype_cases(workload)]
+    return cases
+
+
+def _fetch_main(config: Config) -> str:
+    """The admitted commit: upstream main, fetched now."""
+    repo = config.tileops_repo
+    remote = sh.github_remote(repo, config.upstream)
+    sh.note(f"fetching {remote}/main")
+    sh.run(["git", "-C", repo, "fetch", "--quiet", remote, "main"])
+    # FETCH_HEAD, not `<remote>/main`: a remote whose fetch refspec leaves out main never updates that ref.
+    return sh.run(["git", "-C", repo, "rev-parse", "FETCH_HEAD^{commit}"])
+
+
+def _entry_files(config: Config, commit: str, op: str) -> list[str]:
+    """The manifest file of each `<op>:` entry at *commit*, once per entry."""
+    # Each hit is `<commit>:<path>:<line>:<text>`.
+    hits = sh.run(["git", "-C", config.tileops_repo, "grep", "-n", "-E", f"^{op}:", commit, "--", MANIFEST_SPEC],
+                  check=False).splitlines()
+    return [hit.removeprefix(f"{commit}:").split(":", 1)[0] for hit in hits]
+
+
+def _entry(config: Config, commit: str, op: str) -> tuple[str, list[str]]:
+    """The one manifest entry of *op* at *commit*: its file and its lines."""
+    found = _entry_files(config, commit, op)
+    if len(found) != 1:
+        raise SystemExit(f"{op} has {len(found)} manifest entries under {MANIFEST_SPEC} at {commit[:12]}; "
+                         "a round needs exactly one")
+    entry = manifest_entry(sh.run(["git", "-C", config.tileops_repo, "show", f"{commit}:{found[0]}"]), op)
+    return found[0], entry or []
+
+
+def _spec_only(config: Config, commit: str, names: Iterable[str]) -> list[str]:
+    """The ops of *names* with a `spec-only` manifest entry at *commit*."""
+    spec_only = []
+    for op in names:
+        for path in dict.fromkeys(_entry_files(config, commit, op)):
+            text = sh.run(["git", "-C", config.tileops_repo, "show", f"{commit}:{path}"])
+            if entry_field(manifest_entry(text, op) or [], "status") == "spec-only":
+                spec_only.append(op)
+                break
+    return spec_only
+
+
+def _names(op: str, text: str | None) -> bool:
+    return re.search(rf"\b{re.escape(op)}\b", text or "") is not None
+
+
+def _issue(config: Config, number: int) -> dict[str, Any]:
+    issue = sh.gh_json("issue", "view", str(number), "--repo", config.upstream, "--json", ISSUE_FIELDS)
     if issue["state"] != "OPEN":
         raise SystemExit(f"issue #{number} is {issue['state'].lower()}")
-    kind = "perf" if PERF_ISSUE.match(issue["title"]) else "general"
+    return issue
+
+
+def _find_issue(config: Config, op: str) -> dict[str, Any] | None:
+    """The one open issue whose title names *op*, or None."""
+    rows = sh.gh_json("issue", "list", "--repo", config.upstream, "--state", "open", "--search", f"{op} in:title",
+                      "--limit", "100", "--json", ISSUE_FIELDS) or []
+    found = [row for row in rows if _names(op, row["title"])]
+    if len(found) > 1:
+        numbers = ", ".join(f"#{row['number']}" for row in found)
+        raise SystemExit(f"open issues {numbers} name {op}; pass the one to work with --issue <N>")
+    return found[0] if found else None
+
+
+def _quoted(issue: dict[str, Any]) -> str:
     labels = ", ".join(label["name"] for label in issue["labels"]) or "none"
     body = "\n".join(f"> {line}".rstrip() for line in (issue["body"] or "(no body)").splitlines())
-    requirement = (f"Issue [#{number}]({issue['url']}): {issue['title']} (labels: {labels})\n\n{body}\n\n"
-                   "Take this issue, with the code, tests and docs it names, as the whole requirement.")
+    return f"Issue [#{issue['number']}]({issue['url']}): {issue['title']} (labels: {labels})\n\n{body}"
+
+
+def _issue_work(issue: dict[str, Any], kind: str) -> tuple[dict[str, Any], dict[str, Any]]:
+    """The plan fields and brief values of a perf or general round on *issue*; its body is the requirement."""
+    number = issue["number"]
+    requirement = f"{_quoted(issue)}\n\nTake this issue, with the code, tests and docs it names, as the whole requirement."
     if kind == "perf":
         requirement += (" The op is the one the issue names, and its rows are the workloads the issue lists; "
                         "copy their benchmark names into `workloads` in `provenance.json`.")
@@ -254,41 +435,130 @@ def _issue_work(config: Config, number: int) -> tuple[dict[str, Any], dict[str, 
     return plan, {"TITLE": issue["title"], "REQUIREMENT": requirement, "LINK": link}
 
 
+def _new_op_work(op: str, path: str, family: str, cases: list[str],
+                 issue: dict[str, Any] | None) -> tuple[dict[str, Any], dict[str, Any]]:
+    """The plan fields and brief values of a round that adds the spec-only *op*."""
+    listed = "\n".join(f"- `{case}`" for case in cases)
+    requirement = (f"Add `{op}`, whose manifest entry in `{path}` is `spec-only` at the TileOPs base. Its cases, "
+                   f"each workload `label` by dtype case:\n\n{listed}\n\n")
+    if issue:
+        requirement += f"{_quoted(issue)}\n\n"
+    requirement += f"Take the entry{', the issue' if issue else ''} and these cases as the whole requirement."
+    plan = {"kind": "new-op", "op": op, "family": family, "inventory": cases}
+    link = "The PR links no issue."
+    if issue:
+        plan |= {"issue": issue["number"], "issue_url": issue["url"]}
+        link = f"End Summary, above the `Op:` lines, with the line `Closes #{issue['number']}`."
+    return plan, {"TITLE": f"add {op}", "REQUIREMENT": requirement, "LINK": link}
+
+
+@dataclass
+class Admission:
+    """What admission found for a new round."""
+
+    work: dict[str, Any]
+    values: dict[str, Any]
+    admitted: str
+    stem: str
+    category: str = "issue"
+    issue: dict[str, Any] | None = None
+    queue: wiki.Op | None = None
+
+
+def _route(config: Config, name: str | None, number: int | None, page: wiki.Page | None) -> Admission:
+    """Route and Issue: the kind of the round and the issue it works, or a refusal."""
+    issue = _issue(config, number) if number is not None else None
+    admitted = _fetch_main(config)
+    if name is None:
+        assert issue is not None
+        if PERF_ISSUE.match(issue["title"]):
+            return Admission(*_issue_work(issue, "perf"), admitted, f"issue-{number}", issue=issue)
+        spec_only = _spec_only(config, admitted, dict.fromkeys(OP_NAME.findall(issue["title"])))
+        if len(spec_only) > 1:
+            raise SystemExit(f"issue #{number} names several spec-only ops ({', '.join(spec_only)}); "
+                             "start the one to add with `topa round start <Op> --issue <N>`")
+        if not spec_only:
+            return Admission(*_issue_work(issue, "general"), admitted, f"issue-{number}", issue=issue)
+        name = spec_only[0]
+    path, entry = _entry(config, admitted, name)
+    status = entry_field(entry, "status")
+    if status != "spec-only":
+        if issue is not None:
+            raise SystemExit(f"{name} is {status}, not spec-only: start a perf round on it without --issue")
+        page = page or wiki.fetch(config)
+        op = page.op(name)
+        return Admission(*_wiki_work(op, page), admitted, name, category=op.category, queue=op)
+    family, cases = entry_field(entry, "family"), inventory(entry)
+    if family is None or not cases:
+        raise SystemExit(f"the manifest entry of {name} in {path} needs a family and a label on every workload")
+    if issue is not None and not _names(name, issue["title"]):
+        raise SystemExit(f"the title of issue #{number} does not name {name}")
+    issue = issue or _find_issue(config, name)
+    return Admission(*_new_op_work(name, path, family, cases, issue), admitted, name, issue=issue)
+
+
+def _check_owner(config: Config, admission: Admission, me: str) -> None:
+    """Ownership of a new op: no one else holds its issue or has a PR open on the op or the issue."""
+    op, issue = admission.work["op"], admission.issue
+    others = [user["login"] for user in (issue or {}).get("assignees", []) if user["login"].lower() != me.lower()]
+    if others:
+        raise SystemExit(f"issue #{issue['number']} is assigned to {', '.join(others)}")
+    # `#N`, `<owner>/<repo>#N` or the issue URL, after any GitHub closing keyword.
+    repo = re.escape(config.upstream)
+    target = rf"(?:{repo}#|https://github\.com/{repo}/issues/|#)"
+    closes = re.compile(rf"\b(?:close[sd]?|fix(?:e[sd])?|resolve[sd]?):?\s+{target}{issue['number']}\b",
+                        re.IGNORECASE) if issue else None
+    prs = sh.gh_json("pr", "list", "--repo", config.upstream, "--state", "open", "--limit", "1000",
+                     "--json", "number,title,body,author,url") or []
+    for pr in prs:
+        if pr["author"]["login"].lower() == me.lower():
+            continue
+        if _names(op, pr["title"]) or _names(op, pr["body"]) or (closes and closes.search(pr["body"] or "")):
+            raise SystemExit(f"PR #{pr['number']} by {pr['author']['login']} already works {op}: {pr['url']}")
+
+
 def _branch(plan: dict[str, Any], title: str, category: str, slug: str) -> str:
     if plan["kind"] == "perf":
         return f"perf/{(category or 'ops').replace('_', '-')}/{slug}"
+    if plan["kind"] == "new-op":
+        return f"feat/{plan['family'].replace('_', '-')}/{slug}"
     tag = re.match(r"\[([^\]]+)\]", title)
     return f"{BRANCH_PREFIX.get(tag[1].lower(), 'fix') if tag else 'fix'}/issue/{slug}"
 
 
 def start(config: Config, name: str | None = None, *, issue: int | None = None, page: wiki.Page | None = None,
           dry_run: bool = False, force: bool = False) -> dict[str, Any]:
-    """Start a round on the op *name* of the wiki queue (the newest page unless *page* is
-    given), or on the TileOPs *issue*."""
+    """Start a round on the op *name*, on the TileOPs *issue*, or on both.
+
+    Admission routes the round to its kind, finds its issue, checks that no one else owns the
+    work, and only then creates anything. A spec-only op gets a new-op round; any other op a
+    perf round on the wiki queue (the newest page unless *page* is given).
+    """
     sh.require("claude", config.reviewer_program, "docker", "gh", "git", "herdr", "ssh", "ssh-keygen", "nvidia-smi")
-    if (name is None) == (issue is None):
-        raise SystemExit("name an op or pass --issue <N>, not both")
-    if issue is None:
-        page = page or wiki.fetch(config)
-        op = page.op(name)
-        work, values = _wiki_work(op, page)
-        stem, key, category = name, ("op", name), op.category
-    else:
-        work, values = _issue_work(config, issue)
-        stem, key, category = f"issue-{issue}", ("issue", issue), "issue"
-    remote = sh.github_remote(config.tileops_repo, config.upstream)
+    if name is None and issue is None:
+        raise SystemExit("name an op, pass --issue <N>, or both")
     topa = topa_binary()
     with ledger.claim():
+        admission = _route(config, name, issue, page)
+        work, values, number = admission.work, admission.values, admission.work.get("issue")
         views = ledger.rounds()
+        for view in views.values():
+            taken = [text for key, value, text in (("op", work.get("op"), work.get("op")),
+                                                   ("issue", number, f"issue #{number}"))
+                     if value is not None and view.get(key) == value]
+            if taken and view["state"] in ledger.LIVE:
+                raise SystemExit(f"round {view['round']} already works {taken[0]}")
         live = [view["round"] for view in views.values() if view["state"] in ledger.LIVE]
         if len(live) >= config.max_rounds and not force:
             raise SystemExit(f"{len(live)} rounds are live ({', '.join(live)}); max_rounds is "
                              f"{config.max_rounds}. Stop one, or pass --force.")
-        for view in views.values():
-            if view.get(key[0]) == key[1] and view["state"] in ledger.LIVE:
-                raise SystemExit(f"round {view['round']} already works {name or f'issue #{issue}'}")
-        slug = round_slug(stem, views.values())
-        branch = _branch(work, values["TITLE"], category, slug)
+        me = sh.gh_login() if admission.issue or work["kind"] == "new-op" else ""
+        if work["kind"] == "new-op":
+            _check_owner(config, admission, me)
+        assign = bool(admission.issue) and me.lower() not in {
+            user["login"].lower() for user in admission.issue.get("assignees", [])}
+        slug = round_slug(admission.stem, views.values())
+        branch = _branch(work, values["TITLE"], admission.category, slug)
         worktree = config.worktree_root / f"tileops-{slug}"
         round_dir = config.rounds / slug
         plan = {"round": slug, **work, "branch": branch, "worktree": str(worktree), "round_dir": str(round_dir)}
@@ -296,16 +566,15 @@ def start(config: Config, name: str | None = None, *, issue: int | None = None, 
             return plan
         if round_dir.exists() or worktree.exists():
             raise SystemExit(f"{round_dir} or {worktree} already exists")
-        ledger.append("create", **plan)
+        # A perf or new-op round enters its state graph at REQ.
+        ledger.append("create", **plan, **({"phase": "REQ"} if work["kind"] in FOUNDRY_KINDS else {}))
     try:
-        if issue is not None:
-            sh.run(["gh", "issue", "edit", str(issue), "--repo", config.upstream, "--add-assignee", "@me"])
+        if assign:
+            sh.run(["gh", "issue", "edit", str(number), "--repo", config.upstream, "--add-assignee", "@me"])
         sh.bootstrap_docker(config)
-        sh.note(f"fetching {remote}/main")
-        sh.run(["git", "-C", config.tileops_repo, "fetch", "--quiet", remote, "main"])
-        sh.note(f"creating worktree {worktree} on {branch}")
+        sh.note(f"creating worktree {worktree} on {branch} at {admission.admitted[:12]}")
         created = sh.herdr("worktree", "create", "--cwd", str(config.tileops_repo),
-                           "--branch", branch, "--base", f"{remote}/main", "--path", str(worktree),
+                           "--branch", branch, "--base", admission.admitted, "--path", str(worktree),
                            "--label", slug, "--no-focus", "--json")
         workspace = created["workspace"]["workspace_id"]
         pane = (created.get("root_pane") or {}).get("pane_id") or created["panes"][0]["pane_id"]
@@ -317,12 +586,14 @@ def start(config: Config, name: str | None = None, *, issue: int | None = None, 
         source, foundry_git = foundry.source(config, slug, prepared.commit)
         ledger.append("foundry", round=slug, foundry_source=str(source), tilefoundry_base=prepared.commit)
 
-        if issue is None:
+        # Only a perf round reads earlier attempts; a new op has none.
+        prior = None
+        if admission.queue is not None:
             sh.note("collecting earlier attempts")
-            prior = history.collect(config, op.name, op.benchmark, work["workloads"], exclude=slug)
+            prior = history.collect(config, admission.queue.name, admission.queue.benchmark, work["workloads"],
+                                    exclude=slug)
             values["PRIOR_ATTEMPTS"] = history.render(prior)
-        else:
-            prior = None
+        elif work["kind"] == "perf":
             values["PRIOR_ATTEMPTS"] = ("This round works an issue, so topa collected no earlier attempts. "
                                         "Search the upstream `[Perf]` PRs for the op yourself.")
         values |= {
@@ -330,6 +601,7 @@ def start(config: Config, name: str | None = None, *, issue: int | None = None, 
             "TILEOPS_BASE": tileops_base, "TILEOPS_WORKTREE": worktree, "TILEFOUNDRY_BASE": prepared.commit,
             "TILEFOUNDRY_SOURCE": source, "KNOWLEDGE": knowledge(), "TOPA": topa, "REVIEWER": config.reviewer,
             "CHECKLISTS": review.DIRECTORY,
+            **({"STATE_PATH": states.path(work["kind"])} if work["kind"] in FOUNDRY_KINDS else {}),
         }
         _write_round_dir(config, round_dir, plan["kind"], values, topa)
         if prior is not None:
@@ -365,6 +637,9 @@ def start(config: Config, name: str | None = None, *, issue: int | None = None, 
         confirmed = submit(pane, PROMPT.format(slug=slug))
     except BaseException as error:
         ledger.append("fail", round=slug, error=str(error).strip()[:2000])
+        if assign:
+            sh.run(["gh", "issue", "edit", str(number), "--repo", config.upstream, "--remove-assignee", "@me"],
+                   check=False)
         sh.note(f"round {slug} failed to start; release what it holds with: topa round stop {slug} --rm")
         raise
     ledger.append("start", round=slug, **{k: v for k, v in meta.items() if k != "round"},
@@ -386,6 +661,39 @@ def say(config: Config, slug: str, text: str) -> bool:
     confirmed = submit(current.meta["pane"], text)
     ledger.append("say", round=slug, text=text, confirmed=confirmed)
     return confirmed
+
+
+# --- transition ---------------------------------------------------------------------
+
+
+def transition(config: Config, target: str, reason: str, slug: str | None = None) -> dict[str, Any]:
+    """Move a perf or new-op round to *target*: the edge must be in its kind's table, and its checks must pass."""
+    current = find(config, slug)
+    meta = current.meta
+    kind = meta.get("kind", "perf")
+    reason = " ".join(reason.split())
+    if kind not in states.TRANSITIONS:
+        raise SystemExit(f"a {kind} round has no states")
+    if not reason:
+        raise SystemExit("give the reason with --reason")
+    with ledger.claim():
+        view = ledger.rounds().get(current.slug, {})
+        source = view.get("phase")
+        allowed = states.TRANSITIONS[kind].get(source, frozenset())
+        if target not in allowed:
+            raise SystemExit(f"a {kind} round cannot move from {source} to {target}; "
+                             f"it can move to {', '.join(sorted(allowed)) or 'nothing'}")
+        evidence = gate.Evidence(current.dir, Path(meta["worktree"]), kind, meta.get("issue"),
+                                 tuple(meta.get("workloads", ())), meta.get("measured", 0), op=view.get("op"),
+                                 inventory=tuple(view.get("inventory", ())), published="pr" in view.get("history", ()))
+        for check in states.checks(source, target):
+            try:
+                check(evidence)
+            except gate.GateError as error:
+                raise SystemExit(f"{source} -> {target}: FAIL: {error}") from error
+        commit = sh.run(["git", "-C", meta["worktree"], "rev-parse", "HEAD"])
+        return ledger.append("transition", round=current.slug,
+                             **{"from": source, "to": target, "reason": reason, "commit": commit})
 
 
 # --- status -------------------------------------------------------------------------
@@ -414,7 +722,7 @@ def status(config: Config, *, every: bool = False) -> list[dict[str, Any]]:
         except sh.CommandError:
             pr = None
         rows.append({
-            "round": view["round"], "state": view["state"],
+            "round": view["round"], "state": view["state"], "phase": view.get("phase"),
             "op": view.get("op") or (f"#{view['issue']}" if view.get("issue") else None),
             "branch": view.get("branch"), "gpu": view.get("gpu"), "pane": view.get("pane"),
             "agent": agent.get("agent_status") if agent else None,
