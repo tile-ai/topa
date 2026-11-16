@@ -63,8 +63,8 @@ Exit: the new tests exist, and the failing run on the base is recorded.
 
 ### Implementation rounds
 
-When main refuses every row to serve, the first round has no current kernel: at step 2 it
-continues with the placement [Floor and placement](#floor-and-placement) chose.
+A row main refuses has no current kernel: at step 2 the first round continues on it with the
+placement [Floor and placement](#floor-and-placement) chose.
 
 {{FOUNDRY_ROUNDS}}
 

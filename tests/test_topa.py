@@ -650,7 +650,7 @@ class RoundTests(unittest.TestCase):
         self.admit({number: issue(number, title, labels) for number, title, labels in (
             (1, "[FEAT][RoPE] Add the cos/sin cache op", ["new-op"]), (2, "[FEAT][RoPE] Add RoPECosSinFwdOp", []),
             (3, "[Perf] Speed up RoPECosSinFwdOp", []), (4, "[BUG][Norm] Fix SoftmaxFwdOp and BFwdOp", ["bug"]),
-            (5, "[FEAT] Add RoPECosSinFwdOp and AFwdOp", []), (6, "[FEAT] Serve SoftmaxFwdOp with NoSuchOp", []),
+            (5, "[FEAT] Add RoPECosSinFwdOp and AFwdOp", []), (6, "[FEAT] Serve SoftmaxFwdOp and BFwdOp with NoSuchOp", []),
             (7, "[Feat] Tune SoftmaxFwdOp tails", []), (8, "[FEAT] Serve CFwdOp", []),
             (9, "[BugFix] Fix RoPECosSinFwdOp", []), (10, "[Doc] Explain SoftmaxFwdOp", []))},
             spec_only=("RoPECosSinFwdOp", "AFwdOp"), implemented=("SoftmaxFwdOp", "BFwdOp"))
@@ -660,10 +660,11 @@ class RoundTests(unittest.TestCase):
             ("new-op", "feat/rope/ropecossinfwd-r1", "RoPECosSinFwdOp", None),
             ("perf", "perf/issue/issue-3-r1", None, None),
             ("general", "fix/issue/issue-4-r1", None, None),
-            ("extend", "feat/issue/issue-6-r1", None, ["SoftmaxFwdOp"]),
+            ("extend", "feat/issue/issue-6-r1", None, ["SoftmaxFwdOp", "BFwdOp"]),
             ("general", "fix/issue/issue-9-r1", None, None), ("general", "doc/issue/issue-10-r1", None, None)])
-        self.assertEqual(plans[4]["inventory"][:2], ["SoftmaxFwdOp llama3-8b-prefill {T: float16}",
-                                                     "SoftmaxFwdOp llama3-8b-prefill {T: bfloat16}"])
+        # Two ops with the same labels keep apart by the op in each case.
+        self.assertEqual(plans[4]["inventory"], [f"{op} llama3-8b-prefill {{T: {t}}}" for op in ("SoftmaxFwdOp", "BFwdOp")
+                                                 for t in ("float16", "bfloat16")])
         with mock.patch("topa.round._manifest_ops", return_value={"CFwdOp": ("c.yaml", ["  status: retired"])}), \
                 self.assertRaisesRegex(SystemExit, "names ops of no known status: CFwdOp is retired"):
             start(defaults(), issue=8, dry_run=True)
