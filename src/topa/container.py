@@ -1,8 +1,9 @@
 """The per-round container: the CUDA stack, one GPU, and an SSH door for commands.
 
 The agent runs on the host. Only execution needs the container, so the round
-directory, the TileOPs worktree and the TileFoundry source are mounted at the paths
-they have on the host, and a command carries over unchanged.
+directory, the TileOPs worktree, the TileFoundry source and, read-only, the topa
+package are mounted at the paths they have on the host, and a command carries over
+unchanged.
 """
 
 from __future__ import annotations
@@ -12,6 +13,7 @@ import os
 import shutil
 import time
 from dataclasses import dataclass
+from importlib.resources import files
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -149,6 +151,7 @@ def start(
 
     if not exists:
         choice = chosen = gpu.choose(config, container)
+        package = Path(str(files("topa")))
         sh.docker(
             config, "run", "--detach", "--init", "--name", container,
             "--label", f"topa.round={slug}",
@@ -163,6 +166,8 @@ def start(
             "--publish", "127.0.0.1::22",
             *[arg for host in (worktree, round_dir, foundry_source, foundry_git)
               for path in _spellings(host) for arg in ("--volume", f"{host}:{path}")],
+            # The brief names the review checklists and the knowledge file by their host paths.
+            *[arg for path in _spellings(package) for arg in ("--volume", f"{package}:{path}:ro")],
             "--volume", f"{foundry.stage / 'wheels'}:/opt/topa/wheels:ro",
             "--volume", f"{foundry.stage / 'build-tools'}:/opt/topa/build-tools:ro",
             "--volume", f"{tilelang_cache}:/ci-cache/tilelang",
