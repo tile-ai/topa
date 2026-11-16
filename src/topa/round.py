@@ -205,7 +205,7 @@ def pr_comments(kind: str) -> str:
     """The PR comments file a round of *kind* fills in.
 
     The TileFoundry kinds share one. A new op's or an extension's rows answer to comparators alone, so
-    their results table drops the main column; an extension's other-ops table holds the op's other cases.
+    their results table drops the main column.
     """
     if kind not in FOUNDRY_KINDS:
         return (kit() / kind / "pr-comments.md").read_text()
@@ -217,9 +217,6 @@ def pr_comments(kind: str) -> str:
     for i in range(header, header + 3):
         cells = lines[i].split("|")
         lines[i] = "|".join(cells[:column] + cells[column + 1:])
-    if kind == "extend":
-        others = lines.index("Other ops that share a changed kernel:\n")
-        lines[others] = "The other cases of the extended ops, and other ops that share a changed kernel:\n"
     return "".join(lines)
 
 

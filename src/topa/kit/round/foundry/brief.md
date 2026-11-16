@@ -42,8 +42,8 @@ The round moves along `{{STATE_PATH}}`. STOPPED ends it without a PR.
   Once the PR is published, REVIEW exits to PR.
 - When a `topa round say` message changes the requirement, move to REQ.
 - Move to STOPPED, after writing `## Stop records`, when a state cannot exit: a case that
-  needs a comparable comparator has none, correctness is not reached, an op that shares a
-  changed kernel is slower than main, the directions are exhausted with no publishable
+  needs a comparable comparator has none, correctness is not reached, a row of a table with a
+  main column is slower than main, the directions are exhausted with no publishable
   result, a dispute survives two reviews, a blocking fault survives final review pass 2, a
   TileFoundry finding blocks a required record, or a person says stop.
 

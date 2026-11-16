@@ -56,7 +56,7 @@ Method: <how main, the candidate and the comparators were alternated on one GPU,
 | --- | ---: | ---: | ---: | ---: | ---: | ---: |
 | <workload> | <main median> | <candidate median> | <DRAM floor> | <candidate / DRAM floor> | <comparator median> | <comparator / candidate> |
 
-Other ops that share a changed kernel:
+Other rows checked against main:
 
 | Op | Workload | main (us) | candidate (us) |
 | --- | --- | ---: | ---: |

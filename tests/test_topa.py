@@ -733,6 +733,21 @@ class RoundTests(unittest.TestCase):
                     start(defaults(), op, issue=number, dry_run=True)
                 self.assertEqual(ledger.rounds(), {})
 
+    def test_extend_admission_refuses_only_an_issue_someone_else_owns(self) -> None:
+        """Another assignee or another PR closing the issue refuses; another PR that only names the op does not."""
+        naming = {"number": 9, "title": "[Perf] Tune SoftmaxFwdOp", "body": "", "author": {"login": "alice"}, "url": "u9"}
+        closing = {"number": 10, "title": "[Feat] x", "body": "Closes #2", "author": {"login": "bob"}, "url": "u10"}
+        for assignees, prs, refusal in (([], [naming], None), (["alice"], [], "issue #2 is assigned to alice"),
+                                        ([], [closing], "PR #10 by bob already works issue #2")):
+            with self.subTest(refusal):
+                self.admit({2: issue(2, "[Feat] Serve SoftmaxFwdOp", [], assignees=assignees)}, prs=prs,
+                           spec_only=(), implemented=("SoftmaxFwdOp",))
+                if refusal is None:
+                    self.assertEqual(start(defaults(), issue=2, dry_run=True)["kind"], "extend")
+                    continue
+                with self.assertRaisesRegex(SystemExit, refusal):
+                    start(defaults(), issue=2, dry_run=True)
+
     def test_manifest_is_read_from_the_fetched_upstream_main(self) -> None:
         entry = ("# family\n\nRoPECosSinFwdOp:  # cache\n  family: rope\n  ref_api: \"x\"\n  # status: implemented\n"
                  "  signature:\n    status: implemented\n  status: spec-only\n  workloads:\n"
