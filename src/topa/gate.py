@@ -38,15 +38,14 @@ FOUNDRY_SECTIONS = ("Test Plan", "TileFoundry Description", "Performance", "Resu
                     "TileFoundry Findings")
 COMMENT_SECTIONS = {**dict.fromkeys(FOUNDRY_KINDS, FOUNDRY_SECTIONS), "general": ("Test Plan",)}
 # TileOPs `scripts/ci/types.sh`: `[Type] description` or `[Type][Scope] description`.
-TYPES = "Bench|BugFix|Chore|CI|Design|Doc|Enhancement|Feat|Fix|Maintain|Perf|Refactor|Style|Test"
-GENERAL_TITLE = re.compile(rf"\[({TYPES})\](\[[A-Za-z0-9_-]+\])? [A-Z`].+")
+GENERAL_TITLE = re.compile(r"\[(Bench|BugFix|Chore|CI|Design|Doc|Enhancement|Feat|Fix|Maintain|Perf|Refactor|"
+                           r"Style|Test)\](\[[A-Za-z0-9_-]+\])? [A-Z`].+")
 # The `[foundry]` origin makes TileOPs's auto-label workflow add the `foundry` label.
 FOUNDRY_TITLE = {
     "perf": ("[Perf][foundry][Family] Description", re.compile(r"\[Perf\]\[foundry\]\[[A-Za-z0-9_-]+\] [A-Z`].+")),
     "new-op": ("[Feat][foundry][Family] Description", re.compile(r"\[Feat\]\[foundry\]\[[A-Za-z0-9_-]+\] [A-Z`].+")),
-    "extend": ("[Type][foundry][Family] Description",
-               re.compile(rf"\[({TYPES})\]\[foundry\]\[[A-Za-z0-9_-]+\] [A-Z`].+")),
 }
+FOUNDRY_TITLE["extend"] = FOUNDRY_TITLE["new-op"]
 # The kinds whose PR body ends with the `Op:`, `Benchmark:` and `Result:` lines `topa.history` reads.
 TRAILER_KINDS = ("perf", "new-op")
 RESULTS = ("bar met", "below bar")

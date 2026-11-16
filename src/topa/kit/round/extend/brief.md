@@ -74,7 +74,7 @@ continues with the placement [Floor and placement](#floor-and-placement) chose.
 
 ## PR files
 
-Title: `[<Type>][foundry][<Family>] <imperative description>`, with `<Type>` the issue's type.
+Title: `[Feat][foundry][<Family>] <imperative description>`.
 Why: `[foundry]` makes TileOPs add the `foundry` label.
 
 | File | Becomes | Holds |

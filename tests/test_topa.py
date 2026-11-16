@@ -55,7 +55,7 @@ def filled(name: str, result: str = "bar met", kind: str = "perf") -> str:
     """A kit PR file with every placeholder filled, as a round fills it."""
     text = pr_comments(kind) if name == "pr-comments.md" else (kit() / kind / name).read_text()
     title = {"perf": "[Perf][foundry][Test] Schedule the kernel", "new-op": "[Feat][foundry][Test] Add AFwdOp",
-             "extend": "[BugFix][foundry][Test] Serve the zero-centered weight",
+             "extend": "[Feat][foundry][Test] Serve the zero-centered weight",
              "general": "[BugFix][Norm] Keep the row mean"}[kind]
     text = re.sub(r"^# \[.*", f"# {title}", text)
     text = re.sub(r"<work/final_hir\.py[^\n]*>", HIR.rstrip("\n"), text)
@@ -196,6 +196,24 @@ class GateTests(unittest.TestCase):
     def edit(self, name: str, change) -> None:
         path = self.round / name
         path.write_text(change(path.read_text()))
+
+    def test_other_op_row_with_main_s_program_is_untimed_with_its_comparison_recorded(self) -> None:
+        untimed = "| BFwdOp | w | unchanged | unchanged |"
+        table = (self.round / "pr-comments.md").read_text().replace("| ---: | ---: |\n| 1 | 1 | 1 | 1 |",
+                                                                     f"| ---: | ---: |\n{untimed}")
+        (self.round / "pr-comments.md").write_text(table)
+        with self.assertRaisesRegex(gate.GateError, "program_diff must be an object"):
+            self.validate()
+        self.provenance["program_diff"] = {"command": "diff -r main/ cand/", "report": "e/log"}
+        self.write_provenance()
+        self.assertEqual(self.validate()["result"], "bar met")
+        # Only a pair of markers in an other-ops row stands for main's program; a results row needs times.
+        for old, new in ((untimed, "| BFwdOp | w | unchanged | 1 |"),
+                         ("| 1 | 1 | 1 | 1 | 1 | 1 | 1 |", "| 1 | unchanged | unchanged | 1 | 1 | 1 | 1 |")):
+            with self.subTest(new):
+                (self.round / "pr-comments.md").write_text(table.replace(old, new))
+                with self.assertRaisesRegex(gate.GateError, "needs positive times"):
+                    self.validate()
 
     def test_tie_within_a_timer_step_meets_the_bar(self) -> None:
         self.edit("pr-comments.md", lambda t: t.replace("| 1 | 1 | 1 | 1 | 1 | 1 | 1 |", "| 1 | 2 | 1.02 | 0.5 | 1 | 1 | 0.98 |")
@@ -374,8 +392,8 @@ class GateTests(unittest.TestCase):
     def test_extend_defect_fails(self) -> None:
         p = self.provenance
         cases = {
-            "title does not follow \\[Type\\]\\[foundry\\]": lambda: self.edit(
-                "pr-template.md", lambda t: t.replace("[BugFix][foundry][Test]", "[BugFix][Test]")),
+            "title does not follow \\[Feat\\]\\[foundry\\]": lambda: self.edit(
+                "pr-template.md", lambda t: t.replace("[Feat][foundry][Test]", "[BugFix][foundry][Test]")),
             "must end with the line Closes #7": lambda: self.edit("pr-template.md", lambda t: t + "\nOp: AFwdOp\n"),
             "no table has the cases AFwdOp b": lambda: self.edit_extend_tables("| OtherFwdOp | b |"),
             "row 'AFwdOp b' is slower than main": lambda: self.edit_extend_tables("| AFwdOp | b | 1 | 2 |"),

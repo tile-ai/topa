@@ -22,7 +22,8 @@ FOUNDRY_CHECKLIST = """
 1. Was final_hir.py analyzed, finalized with schedule finalize, and the kernel written from its TIR?
 2. Do the raw analyze reports justify the chosen placement over the rejected ones?
 3. Was every row of the results table measured alternating {cycle}, and every row
-   of the other-ops table alternating main and candidate?
+   of the other-ops table alternating main and candidate, except an `unchanged` row
+   whose program comparison is recorded?
 4. Does every claim in pr-template.md and pr-comments.md match the evidence?"""
 CHECKLIST = {
     "perf": FOUNDRY_CHECKLIST.format(cycle="main, candidate and comparators"),

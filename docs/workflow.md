@@ -72,7 +72,7 @@ start fails.
 | --- | --- | --- | --- |
 | perf | the [perf brief](../src/topa/kit/round/perf/brief.md), with the earlier attempts at the op | `[Perf][foundry][<Family>] ...` | `Refs #N`; the nightly confirms the result |
 | new-op | the [new-op brief](../src/topa/kit/round/new-op/brief.md) on every workload `label` x dtype case of the entry; no earlier attempts | `[Feat][foundry][<Family>] ...` | `Closes #N` when there is an issue |
-| extend | the [extend brief](../src/topa/kit/round/extend/brief.md) on the rows to serve: the cases of the ops' entries main refuses, and those the issue names | `[<Type>][foundry][<Family>] ...` | `Closes #N`, the body's last line |
+| extend | the [extend brief](../src/topa/kit/round/extend/brief.md) on the rows to serve: the cases of the ops' entries main refuses, and those the issue names | `[Feat][foundry][<Family>] ...` | `Closes #N`, the body's last line |
 | general | understand, write a failing test, implement, verify, review, clean up, PR | `[<Type>] ...` | `Closes #N` |
 
 - A new op has no main, so its Performance table has no main column, and `below bar` asks

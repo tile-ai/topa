@@ -1,4 +1,4 @@
-# [<Type>][foundry][<Family>] <Imperative description of what the ops now serve>
+# [Feat][foundry][<Family>] <Imperative description of what the ops now serve>
 
 ## Summary
 
