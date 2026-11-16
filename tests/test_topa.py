@@ -10,7 +10,7 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
-from topa import config, gate, history, ledger, review, setup_cmd, wiki
+from topa import config, gate, gpu, history, ledger, review, setup_cmd, wiki
 from topa.container import foreign_files
 from topa.hook import decide
 from topa.round import (
@@ -614,6 +614,23 @@ class HistoryTests(unittest.TestCase):
         self.assertIn(f"stopped at GitHub's {history.SEARCH_CAP} results", text)
         self.assertIn("No earlier round of this op", text)
         self.assertLessEqual(len(text), history.MAX_SECTION + 100)
+
+
+class GpuTests(unittest.TestCase):
+    MODES = {"compute_mode": [["0", "Default"], ["1", "Exclusive_Process"], ["2", "Exclusive_Process"]],
+             "uuid": [["0", "GPU-a"], ["1", "GPU-b"], ["2", "GPU-c"]]}
+
+    def unusable(self, apps: str, **changes) -> set[int]:
+        def query(*fields):
+            return self.MODES[fields[1]]
+        with mock.patch("topa.gpu._query", side_effect=query), mock.patch("topa.gpu.sh.run", return_value=apps):
+            return gpu.unusable(defaults(**changes))
+
+    def test_an_exclusive_card_is_unusable_only_while_a_process_computes_on_it(self):
+        self.assertEqual(self.unusable(""), set())
+        self.assertEqual(self.unusable("GPU-b\n"), {1})
+        self.assertEqual(self.unusable("GPU-a\nGPU-c\n"), {2})
+        self.assertEqual(self.unusable("", gpu_exclude=(0,)), {0})
 
 
 if __name__ == "__main__":
