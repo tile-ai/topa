@@ -148,8 +148,8 @@ Run the affected tests on the GPU, `scripts/validate_manifest.py`, the benchmark
 <!-- COMMENTS -->
 - Test Plan: the `scripts/test_node_delta.py` output and the path each new case guards.
 - TileFoundry Description: `work/final_hir.py` verbatim.
-- Performance: one row per measured workload of the op, and the other ops that share a
-  changed kernel. Delete the other-ops table when there are none.
+- Performance: one row per measured workload of the op, and in the other-ops table the other
+  rows checked against main. Delete that table when there are none.
 - Result And Limitations: opens with the result.
 - TileFoundry Findings.
 - Keep every `## ` heading and every column.
