@@ -114,6 +114,10 @@ Measure this way:
 - Run at least three repeats; a repeat is one cycle of main, candidate and comparators on
   the round's GPU, with the L2 flush. Time main only on the rows of a table with a main column.
 - Keep each repeat's timings, and report the median of `device_busy_ms`.
+- Before timing an other-ops row, compare the generated kernel program (the CUDA source) of
+  main and the candidate on it. Time only the rows whose program differs. Write `unchanged`
+  in both time cells of a row whose program is main's byte for byte, and record the
+  comparison of every row as `program_diff`.
 
 Write the Performance section of `pr-comments.md` from the last measurement.
 
@@ -178,11 +182,13 @@ Run the affected tests on the GPU, `scripts/validate_manifest.py`, the benchmark
   "schedule": {"command": "<tilefoundry command>", "report": "<the TIR>"},
   "twin_check": {"command": "<tilefoundry command>", "report": "<r>"},
   "iterations": [{"change": "<what>", "basis": "<fact>", "predicted_us": 0.0, "measured_us": 0.0}],
-  "benchmark": {"command": "<bench>", "report": "<r>"}
+  "benchmark": {"command": "<bench>", "report": "<r>"},
+  "program_diff": {"command": "<the command that compares each other-ops row's program>", "report": "<r>"}
 }
 ```
 
 - Give `floor` one entry per workload, and `placements` at least two, exactly one chosen.
+- Record `program_diff` when an other-ops row is `unchanged`.
 - Write `findings.json` as `{"findings": [], "issue": null}`, or with the issue URL and per
   finding `id`, `classification`, `command`, `expected`, `actual`, `workaround_cost`,
   `public_surface`, `affected_workloads` and `reproducer`.

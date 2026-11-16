@@ -20,16 +20,14 @@ class GateError(ValueError):
     """The round is missing mechanically verifiable PR evidence."""
 
 
-# The kinds that build a kernel with TileFoundry and pass its records; only they change a kernel.
+# The kinds that build a kernel with TileFoundry and pass its records.
 FOUNDRY_KINDS = ("perf", "new-op", "extend")
-KERNELS = ("src/tileops/_kernels/", "src/tileops/csrc/")
 # The repository's own tooling, and for a perf round what it is measured against; a new op adds
 # its benchmark and workloads, and changes only its manifest status line (`check_op`).
 FORBIDDEN_ROOTS = {
     "perf": ("benchmarks/", "workloads/", "src/tileops/manifest/", "scripts/", ".github/"),
     "new-op": ("scripts/", ".github/"),
     "extend": ("src/tileops/manifest/", "scripts/", ".github/"),
-    "general": KERNELS,
 }
 # The round's PR, from the files of its kind in `kit/round/`, filled in: `pr-template.md` is
 # the title and a body of one Summary section, which becomes the squash commit's message;
@@ -52,6 +50,8 @@ FOUNDRY_TITLE = {
 # The kinds whose PR body ends with the `Op:`, `Benchmark:` and `Result:` lines `topa.history` reads.
 TRAILER_KINDS = ("perf", "new-op")
 RESULTS = ("bar met", "below bar")
+# The main and candidate cells of an other-ops row whose generated program is main's, byte for byte.
+UNCHANGED = "unchanged"
 # A time ratio at or above this is noise: the nightly's threshold for a row behind.
 NOISE = 0.99
 # The last lines of a perf PR body, which `topa.history` reads to find earlier attempts at an op.
@@ -196,12 +196,18 @@ def _time(value: object) -> float | None:
     return number if math.isfinite(number) and number > 0 and not isinstance(value, bool) else None
 
 
-def _not_slower(table: list[list[str]], label: str) -> set[str]:
-    """The rows of *table* faster than main beyond `NOISE`; a row slower beyond it, or without times, fails."""
+def _not_slower(table: list[list[str]], label: str, unchanged: set[str] | None = None) -> set[str]:
+    """The rows of *table* faster than main beyond `NOISE`; a row slower beyond it, or without times, fails.
+
+    A row whose main and candidate cells are both `UNCHANGED` goes into *unchanged* untimed, when given.
+    """
     main, candidate = table[0].index("main (us)"), table[0].index("candidate (us)")
     faster = set()
     for row in table[1:]:
         name = " ".join(cell.strip("`") for cell in row[:label]) if label else row[0].strip("`")
+        if unchanged is not None and [row[i] if i < len(row) else "" for i in (main, candidate)] == [UNCHANGED] * 2:
+            unchanged.add(name)
+            continue
         times = [_time(row[i]) if i < len(row) else None for i in (main, candidate)]
         if None in times:
             raise GateError(f"Performance: row {name!r} needs positive times for main and candidate")
@@ -214,8 +220,9 @@ def _not_slower(table: list[list[str]], label: str) -> set[str]:
 
 
 def _validate_performance(text: str, workloads: tuple[str, ...], measured: int, result: str,
-                          main: bool = True, inventory: tuple[str, ...] = ()) -> None:
-    """The environment, the method, one row per workload of the op, and no row slower than main.
+                          main: bool = True, inventory: tuple[str, ...] = ()) -> set[str]:
+    """The environment, the method, one row per workload of the op, and no row slower than main;
+    the other-ops rows marked `UNCHANGED`.
 
     The op's own table holds the bar: under `bar met` each row beats its comparator or ties
     it, or the DRAM floor, within one timer step; under `below bar` some row beats main beyond
@@ -244,8 +251,9 @@ def _validate_performance(text: str, workloads: tuple[str, ...], measured: int, 
     others = _table(lines, "| Op | Workload |")
     if others and not {"main (us)", "candidate (us)"} <= set(others[0]):
         raise GateError("Performance: the other-ops table needs main (us) and candidate (us) columns")
+    unchanged: set[str] = set()
     if others:
-        _not_slower(others, 2)
+        _not_slower(others, 2, unchanged)
     names = [row[0].strip("`") for row in results[1:]] + [
         " ".join(cell.strip("`") for cell in row[:2]) for row in others[1:]]
     repeated = sorted({name for name in names if names.count(name) > 1})
@@ -287,6 +295,7 @@ def _validate_performance(text: str, workloads: tuple[str, ...], measured: int, 
                                 "comparator and the floor, so the bar is not met")
     if main and result == "below bar" and not faster & seen:
         raise GateError(f"Performance: a below bar result must beat main on a row by candidate / main below {NOISE}")
+    return unchanged
 
 
 def _validate_pr(round_dir: Path, kind: str, issue: int | None) -> None:
@@ -508,8 +517,9 @@ def check_implementation(evidence: Evidence) -> None:
     performance = dict(sections(_required_file(evidence.dir, COMMENTS_FILE).read_text(encoding="utf-8")))
     if "Performance" not in performance:
         raise GateError(f"{COMMENTS_FILE} lacks the Performance section")
-    _validate_performance(performance["Performance"], evidence.workloads, evidence.measured, result,
-                          main=evidence.kind == "perf", inventory=evidence.inventory)
+    if _validate_performance(performance["Performance"], evidence.workloads, evidence.measured, result,
+                             main=evidence.kind == "perf", inventory=evidence.inventory):
+        _record(evidence.dir, provenance.get("program_diff"), "program_diff", tilefoundry=False)
     if evidence.kind != "perf" and result == "below bar":
         check_stop_records(evidence)
 

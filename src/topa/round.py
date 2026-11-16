@@ -35,6 +35,7 @@ PLACEHOLDER = re.compile(r"\{\{([A-Z_]+)\}\}")
 KINDS = ("perf", "new-op", "extend", "general")
 FOUNDRY_PART = re.compile(r"^<!-- ([A-Z_]+) -->\n", re.MULTILINE)
 PERF_ISSUE = re.compile(r"\[perf\]", re.IGNORECASE)
+FEAT_ISSUE = re.compile(r"\[feat\]", re.IGNORECASE)
 ISSUE_FIELDS = "number,title,body,labels,url,state,assignees"
 OP_NAME = re.compile(r"\b[A-Z][A-Za-z0-9_]*Op\b")
 MANIFEST_SPEC = "src/tileops/manifest/spec/"
@@ -486,9 +487,10 @@ class Admission:
 def _route(config: Config, name: str | None, number: int | None, page: wiki.Page | None) -> Admission:
     """Route and Issue: the kind of the round and the issue it works, or a refusal.
 
-    Every change to an op goes through TileFoundry, so an issue routes by the ops its title names
-    (the words that have a manifest entry): a `[Perf]` title gets perf; one spec-only op new-op,
-    several refuse; implemented ops alone extend; no op general.
+    Kernel work of a perf or feature issue runs through TileFoundry, so an issue routes by its
+    title's TileOPs type and the ops it names (the words with a manifest entry): `[Perf]` gets
+    perf; `[Feat]` naming one spec-only op new-op, several refuse, only implemented ops extend;
+    any other issue general.
     """
     issue = _issue(config, number) if number is not None else None
     admitted = _fetch_main(config)
@@ -496,7 +498,8 @@ def _route(config: Config, name: str | None, number: int | None, page: wiki.Page
         assert issue is not None
         if PERF_ISSUE.match(issue["title"]):
             return Admission(*_issue_work(issue, "perf"), admitted, f"issue-{number}", issue=issue)
-        named = _manifest_ops(config, admitted, dict.fromkeys(OP_NAME.findall(issue["title"])))
+        names = OP_NAME.findall(issue["title"]) if FEAT_ISSUE.match(issue["title"]) else []
+        named = _manifest_ops(config, admitted, dict.fromkeys(names))
         status = {op: entry_field(entry, "status") for op, (_, entry) in named.items()}
         unknown = [f"{op} is {state}" for op, state in status.items() if state not in ("spec-only", "implemented")]
         if unknown:

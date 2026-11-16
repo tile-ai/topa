@@ -7,10 +7,8 @@
 2. Reproduce the bug, or locate the code the change touches.
 3. Write under `## Plan` in `report.md` what the change is and which test shows it.
 
-Exit: the plan states when the issue is done. If the issue is unclear, needs a decision a
-person must make, or needs a change under `src/tileops/_kernels/` or `src/tileops/csrc/`,
-follow [Ending without a PR](#ending-without-a-pr). Why: only a TileFoundry round changes a
-kernel, and `topa gate` rejects such a diff here.
+Exit: the plan states when the issue is done. If the issue is unclear or needs a decision
+a person must make, follow [Ending without a PR](#ending-without-a-pr).
 
 ### 2. Failing test
 

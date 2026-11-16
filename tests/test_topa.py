@@ -237,21 +237,6 @@ class GateTests(unittest.TestCase):
                 (self.round / "pr-template.md").write_text(text)
                 with self.assertRaisesRegex(gate.GateError, message):
                     gate.validate_round(self.round, self.repo, kind="general", issue=7)
-        (self.round / "pr-template.md").write_text(body)
-        clean = self.provenance["candidate_commit"]
-        for root in ("src/tileops/_kernels/", "src/tileops/csrc/"):
-            with self.subTest(root):
-                self.provenance["tileops_base"] = clean
-                self.commit(f"{root}k.h")
-                with self.assertRaisesRegex(gate.GateError, f"forbidden paths: {root}k.h"):
-                    gate.validate_round(self.round, self.repo, kind="general", issue=7)
-                # A kernel moved out of its root is still a change under it.
-                self.provenance["tileops_base"] = self.provenance["candidate_commit"]
-                git(self.repo, "mv", f"{root}k.h", f"src/tileops/{root.split('/')[2]}.h")
-                self.commit()
-                with self.assertRaisesRegex(gate.GateError, f"forbidden paths: {root}k.h"):
-                    gate.validate_round(self.round, self.repo, kind="general", issue=7)
-                clean = self.provenance["candidate_commit"]
 
     def test_perf_issue_round_takes_its_rows_from_provenance(self) -> None:
         self.edit("pr-template.md", lambda t: t.replace("\n\nOp:", "\nRefs #7\n\nOp:"))
@@ -373,6 +358,11 @@ class GateTests(unittest.TestCase):
         """The rows it serves meet the bar with no main column; below bar asks for the stop records."""
         self.extend()
         self.assertEqual(self.validate_extend()["result"], "bar met")
+        # A case whose generated program is main's is listed untimed, with the program comparison recorded.
+        self.edit_extend_tables("| AFwdOp | b | unchanged | unchanged |")
+        self.provenance["program_diff"] = {"command": "diff -r main/ cand/", "report": "e/log"}
+        self.write_provenance()
+        self.assertEqual(self.validate_extend()["result"], "bar met")
         (self.round / "report.md").write_text("## Stop records\n\n(1), (2) and (3) hold for AFwdOp a.\n")
         self.provenance["result"] = "below bar"
         self.write_provenance()
@@ -395,6 +385,10 @@ class GateTests(unittest.TestCase):
             "provenance workloads AFwdOp z are not admitted cases": lambda: p.update(workloads=["AFwdOp z"]),
             "forbidden paths: src/tileops/manifest/spec/a.yaml": lambda: self.commit(
                 **{MANIFEST_PATH: MANIFEST.format(a="implemented", b="spec-only")}),
+            # A file moved out of a forbidden root is still a change under it.
+            "forbidden paths: src/tileops/manifest/spec/a.yaml$": lambda: (
+                git(self.repo, "mv", MANIFEST_PATH, "src/tileops/a.yaml"), self.commit()),
+            "program_diff must be an object": lambda: self.edit_extend_tables("| AFwdOp | b | unchanged | unchanged |"),
             "base_tests must be an object": lambda: p.pop("base_tests"),
             "non-empty `## Stop records`": lambda: (p.update(result="below bar"), self.edit(
                 "pr-comments.md", lambda t: t.replace("**bar met**", "**below bar**"))),
@@ -633,22 +627,24 @@ class RoundTests(unittest.TestCase):
             render("{{A}} {{B}}", {"A": 1})
 
     def test_issue_routes_to_perf_new_op_extend_or_general(self) -> None:
-        """`[Perf]` wins; then the ops the title names: one spec-only, new-op; only implemented ones, extend;
-        none, general. A label does not route."""
+        """`[Perf]` wins; a `[Feat]` title naming one spec-only op gets new-op, only implemented ops extend;
+        any other issue general. A label does not route."""
         self.admit({number: issue(number, title, labels) for number, title, labels in (
             (1, "[FEAT][RoPE] Add the cos/sin cache op", ["new-op"]), (2, "[FEAT][RoPE] Add RoPECosSinFwdOp", []),
             (3, "[Perf] Speed up RoPECosSinFwdOp", []), (4, "[BUG][Norm] Fix SoftmaxFwdOp and BFwdOp", ["bug"]),
             (5, "[FEAT] Add RoPECosSinFwdOp and AFwdOp", []), (6, "[FEAT] Serve SoftmaxFwdOp with NoSuchOp", []),
-            (7, "[Doc] Explain SoftmaxFwdOp in NoSuchOp docs", []), (8, "[FEAT] Serve CFwdOp", []))},
+            (7, "[Feat] Tune SoftmaxFwdOp tails", []), (8, "[FEAT] Serve CFwdOp", []),
+            (9, "[BugFix] Fix RoPECosSinFwdOp", []), (10, "[Doc] Explain SoftmaxFwdOp", []))},
             spec_only=("RoPECosSinFwdOp", "AFwdOp"), implemented=("SoftmaxFwdOp", "BFwdOp"))
-        plans = [start(defaults(), issue=number, dry_run=True) for number in (1, 2, 3, 4, 6)]
+        plans = [start(defaults(), issue=number, dry_run=True) for number in (1, 2, 3, 4, 6, 9, 10)]
         self.assertEqual([(plan["kind"], plan["branch"], plan.get("op"), plan.get("ops")) for plan in plans], [
             ("general", "feat/issue/issue-1-r1", None, None),
             ("new-op", "feat/rope/ropecossinfwd-r1", "RoPECosSinFwdOp", None),
             ("perf", "perf/issue/issue-3-r1", None, None),
-            ("extend", "fix/issue/issue-4-r1", None, ["SoftmaxFwdOp", "BFwdOp"]),
-            ("extend", "feat/issue/issue-6-r1", None, ["SoftmaxFwdOp"])])
-        self.assertEqual(plans[3]["inventory"][:2], ["SoftmaxFwdOp llama3-8b-prefill {T: float16}",
+            ("general", "fix/issue/issue-4-r1", None, None),
+            ("extend", "feat/issue/issue-6-r1", None, ["SoftmaxFwdOp"]),
+            ("general", "fix/issue/issue-9-r1", None, None), ("general", "doc/issue/issue-10-r1", None, None)])
+        self.assertEqual(plans[4]["inventory"][:2], ["SoftmaxFwdOp llama3-8b-prefill {T: float16}",
                                                      "SoftmaxFwdOp llama3-8b-prefill {T: bfloat16}"])
         with mock.patch("topa.round._manifest_ops", return_value={"CFwdOp": ("c.yaml", ["  status: retired"])}), \
                 self.assertRaisesRegex(SystemExit, "names ops of no known status: CFwdOp is retired"):

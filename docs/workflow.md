@@ -48,13 +48,12 @@ check passes. It fetches upstream main first; that commit is the round's base.
 | `topa round start <Op> --issue <N>`, `<Op>` spec-only | new-op on issue N |
 | `topa round start <Op>`, `<Op>` implemented | perf on the op's row of the wiki queue |
 | `topa round start --issue <N>`, title starts with `[Perf]` | perf on the workloads the issue lists |
-| `topa round start --issue <N>`, title names exactly one spec-only op | new-op on that op |
-| `topa round start --issue <N>`, title names ops, all implemented | extend on those ops |
-| `topa round start --issue <N>`, title names no op | general |
+| `topa round start --issue <N>`, title starts with `[Feat]` and names exactly one spec-only op | new-op on that op |
+| `topa round start --issue <N>`, title starts with `[Feat]` and names ops, all implemented | extend on those ops |
+| `topa round start --issue <N>`, anything else | general |
 
-A title names `<Op>` when `<Op>` is a whole word of it with a manifest entry. Every change to
-an op goes through TileFoundry: only the TileFoundry kinds may change `src/tileops/_kernels/`
-or `src/tileops/csrc/`. Admission refuses:
+Kernel work of a perf or feature issue runs through TileFoundry. A title names `<Op>` when
+`<Op>` is a whole word of it with a manifest entry. Admission refuses:
 
 - an op with no manifest entry under `src/tileops/manifest/spec/`, or several;
 - a spec-only or extended entry without a `family`, or with a workload without a `label`;
@@ -105,7 +104,7 @@ REQ -> HIR -> FLOOR -> [OP, new-op and extend] -> IMPL -> CLEAN -> REVIEW -> FIN
 | HIR -> FLOOR | the `reference_check` record |
 | FLOOR -> OP / IMPL | a floor record per row (new-op: per admitted case); at least two placements, one chosen |
 | OP -> IMPL | new-op: the manifest diff is the op's `status: spec-only` turned `implemented`, alone; extend: no manifest diff; `base_tests` records the new tests failing on the base |
-| IMPL -> CLEAN | `schedule`, `twin_check`, `iterations`, `benchmark`; the Performance table, a row per row (new-op: per admitted case), under the bar of the result; extend: the rows to serve alone in the results table, every other admitted case in the other-ops table; perf: the declared production kernel changed |
+| IMPL -> CLEAN | `schedule`, `twin_check`, `iterations`, `benchmark`; the Performance table, a row per row (new-op: per admitted case), under the bar of the result; `program_diff` when an other-ops row is `unchanged`; extend: the rows to serve alone in the results table, every other admitted case in the other-ops table; perf: the declared production kernel changed |
 | REVIEW -> PR | the round has published its PR (a `pr` event in the ledger) |
 | any -> STOPPED | `## Stop records` in `report.md` |
 
@@ -121,4 +120,4 @@ passes the checks of its edges again and `findings.json`; a perf or new-op round
 | perf | `benchmarks/`, `workloads/`, `src/tileops/manifest/`, `scripts/`, `.github/` |
 | new-op | `scripts/`, `.github/`; in the manifest, all but the op's status line |
 | extend | `src/tileops/manifest/`, `scripts/`, `.github/` |
-| general | `src/tileops/_kernels/`, `src/tileops/csrc/` |
+| general | none |
