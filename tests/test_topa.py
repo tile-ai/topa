@@ -199,8 +199,8 @@ class GateTests(unittest.TestCase):
 
     def test_other_op_row_with_main_s_program_is_untimed_with_its_comparison_recorded(self) -> None:
         untimed = "| BFwdOp | w | unchanged | unchanged |"
-        table = (self.round / "pr-comments.md").read_text().replace("| ---: | ---: |\n| 1 | 1 | 1 | 1 |",
-                                                                     f"| ---: | ---: |\n{untimed}")
+        other = "| --- | --- | ---: | ---: |\n"
+        table = (self.round / "pr-comments.md").read_text().replace(f"{other}| 1 | 1 | 1 | 1 |", other + untimed)
         (self.round / "pr-comments.md").write_text(table)
         with self.assertRaisesRegex(gate.GateError, "program_diff must be an object"):
             self.validate()

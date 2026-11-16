@@ -117,7 +117,7 @@ Measure this way:
 - Before timing an other-ops row, compare the generated kernel program (the CUDA source) of
   main and the candidate on it. Time only the rows whose program differs. Write `unchanged`
   in both time cells of a row whose program is main's byte for byte, and record the
-  comparison of every row as `program_diff`.
+  comparison that shows it as `program_diff`.
 
 Write the Performance section of `pr-comments.md` from the last measurement.
 

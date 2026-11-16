@@ -7,8 +7,10 @@
 2. Reproduce the bug, or locate the code the change touches.
 3. Write under `## Plan` in `report.md` what the change is and which test shows it.
 
-Exit: the plan states when the issue is done. If the issue is unclear or needs a decision
-a person must make, follow [Ending without a PR](#ending-without-a-pr).
+Exit: the plan states when the issue is done. If the issue is unclear, needs a decision a
+person must make, or is a `[Feat]` issue that needs kernel work, follow
+[Ending without a PR](#ending-without-a-pr). Why: such work runs in a TileFoundry round, which
+a `[Feat]` title naming the op starts.
 
 ### 2. Failing test
 
