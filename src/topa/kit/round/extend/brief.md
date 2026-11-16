@@ -56,10 +56,11 @@ Exit: every pair is classified, and every row to serve has a comparable comparat
 
 1. Pass the values of the rows to serve from the Op to its kernel, as TileOPs `docs/design/` sets.
 2. Add the tests TileOPs `docs/design/testing.md` sets for those values.
-3. Run the new tests on the base, and record the failing run as `base_tests`,
-   `{"command": "<pytest>", "report": "<r>"}`, in `provenance.json`.
+3. Run the new tests on the base, and record the run as `base_tests`,
+   `{"command": "<pytest>", "report": "<r>"}`, in `provenance.json`. A test of a row main
+   refuses fails there.
 
-Exit: the new tests exist, and the failing run on the base is recorded.
+Exit: the new tests exist, and their run on the base is recorded.
 
 ### Implementation rounds
 

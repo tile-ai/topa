@@ -469,8 +469,8 @@ def _implemented(text: str, op: str | None) -> str | None:
 
 
 def check_op(evidence: Evidence) -> None:
-    """OP -> IMPL: the new tests failed on the base, and the manifest changes only by a new op's
-    `status: spec-only` turning `implemented`; an extension changes none."""
+    """OP -> IMPL: the run of the new tests on the base is recorded, and the manifest changes only by
+    a new op's `status: spec-only` turning `implemented`; an extension changes none."""
     changed = _git(evidence.repo, "diff", "--name-only", evidence.base, "--", MANIFEST).stdout.split()
     if evidence.kind == "extend" and changed:
         raise GateError(f"an extension changes no {MANIFEST} file: {', '.join(changed)}")

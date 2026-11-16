@@ -103,7 +103,7 @@ REQ -> HIR -> FLOOR -> [OP, new-op and extend] -> IMPL -> CLEAN -> REVIEW -> FIN
 | --- | --- |
 | HIR -> FLOOR | the `reference_check` record |
 | FLOOR -> OP / IMPL | a floor record per row (new-op: per admitted case); at least two placements, one chosen |
-| OP -> IMPL | new-op: the manifest diff is the op's `status: spec-only` turned `implemented`, alone; extend: no manifest diff; `base_tests` records the new tests failing on the base |
+| OP -> IMPL | new-op: the manifest diff is the op's `status: spec-only` turned `implemented`, alone; extend: no manifest diff; `base_tests` records the run of the new tests on the base |
 | IMPL -> CLEAN | `schedule`, `twin_check`, `iterations`, `benchmark`; the Performance table, a row per row (new-op: per admitted case), under the bar of the result; `program_diff` when an other-ops row is `unchanged`; extend: the rows to serve alone in the results table, every other admitted case in the other-ops table; perf: the declared production kernel changed |
 | REVIEW -> PR | the round has published its PR (a `pr` event in the ledger) |
 | any -> STOPPED | `## Stop records` in `report.md` |
