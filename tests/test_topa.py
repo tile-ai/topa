@@ -617,20 +617,12 @@ class HistoryTests(unittest.TestCase):
 
 
 class GpuTests(unittest.TestCase):
-    MODES = {"compute_mode": [["0", "Default"], ["1", "Exclusive_Process"], ["2", "Exclusive_Process"]],
-             "uuid": [["0", "GPU-a"], ["1", "GPU-b"], ["2", "GPU-c"]]}
-
-    def unusable(self, apps: str, **changes) -> set[int]:
-        def query(*fields):
-            return self.MODES[fields[1]]
-        with mock.patch("topa.gpu._query", side_effect=query), mock.patch("topa.gpu.sh.run", return_value=apps):
-            return gpu.unusable(defaults(**changes))
-
     def test_an_exclusive_card_is_unusable_only_while_a_process_computes_on_it(self):
-        self.assertEqual(self.unusable(""), set())
-        self.assertEqual(self.unusable("GPU-b\n"), {1})
-        self.assertEqual(self.unusable("GPU-a\nGPU-c\n"), {2})
-        self.assertEqual(self.unusable("", gpu_exclude=(0,)), {0})
+        modes = [["0", "Default"], ["1", "Exclusive_Process"], ["2", "Exclusive_Process"], ["3", "Prohibited"]]
+        with mock.patch("topa.gpu._query", return_value=modes):
+            self.assertEqual(gpu.unusable(defaults(), []), {3})
+            self.assertEqual(gpu.unusable(defaults(), [(0, "7"), (1, "8")]), {1, 3})
+            self.assertEqual(gpu.unusable(defaults(gpu_exclude=(0,)), []), {0, 3})
 
 
 if __name__ == "__main__":

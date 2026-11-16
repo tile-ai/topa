@@ -1,11 +1,10 @@
 """Choosing the one GPU a round runs on.
 
-Never usable: the cards in `gpu_exclude`, and a card in an exclusive compute mode
-while a process computes on it, since such a card takes one process at a time; an
-idle exclusive card is usable like any other. Avoided when there is a choice: a card
-another of our rounds holds -- between kernels it shows no memory and no process --
-and a card another user computes on. A round never waits for a card: its early phases need no
-GPU, so when every usable card is shared it takes one and says so, and the timings
+Never usable: the cards in `gpu_exclude`, a card in the Prohibited compute mode, and an
+exclusive card while a process computes on it. Avoided when there is a choice: a card
+another of our rounds holds -- between kernels it shows no memory and no process -- and
+a card another user computes on. A round never waits for a card: its early phases need
+no GPU, so when every usable card is shared it takes one and says so, and the timings
 show whether that mattered.
 """
 
@@ -29,32 +28,26 @@ def _query(*fields: str) -> list[list[str]]:
     return [[cell.strip() for cell in line.split(",")] for line in out.splitlines() if line.strip()]
 
 
-def unusable(config: Config) -> set[int]:
-    exclusive = {int(index) for index, mode in _query("index", "compute_mode") if mode != "Default"}
-    return set(config.gpu_exclude) | (exclusive & busy())
-
-
-def busy() -> set[int]:
-    """Cards with any compute process, whoever owns it."""
+def apps() -> list[tuple[int, str]]:
+    """Each compute process as (card, pid)."""
     by_uuid = {uuid: int(index) for index, uuid in _query("index", "uuid")}
-    out = sh.run(["nvidia-smi", "--query-compute-apps=gpu_uuid", "--format=csv,noheader"], check=False)
-    return {by_uuid[line.strip()] for line in out.splitlines() if line.strip() in by_uuid}
+    out = sh.run(["nvidia-smi", "--query-compute-apps=gpu_uuid,pid", "--format=csv,noheader"])
+    rows = [[part.strip() for part in line.split(",", 1)] for line in out.splitlines() if "," in line]
+    return [(by_uuid[uuid], pid) for uuid, pid in rows if uuid in by_uuid]
 
 
-def foreign() -> set[int]:
+def unusable(config: Config, running: list[tuple[int, str]]) -> set[int]:
+    busy = {index for index, _ in running}
+    blocked = {int(index) for index, mode in _query("index", "compute_mode")
+               if mode == "Prohibited" or (mode != "Default" and int(index) in busy)}
+    return set(config.gpu_exclude) | blocked
+
+
+def foreign(running: list[tuple[int, str]]) -> set[int]:
     """Cards with a process owned by another user."""
-    by_uuid = {uuid: int(index) for index, uuid in _query("index", "uuid")}
-    out = sh.run(["nvidia-smi", "--query-compute-apps=gpu_uuid,pid", "--format=csv,noheader"], check=False)
     me = getpass.getuser()
-    held = set()
-    for line in out.splitlines():
-        if "," not in line:
-            continue
-        uuid, pid = (part.strip() for part in line.split(",", 1))
-        owner = sh.run(["ps", "-o", "user=", "-p", pid], check=False).strip()
-        if owner and owner != me and uuid in by_uuid:
-            held.add(by_uuid[uuid])
-    return held
+    return {index for index, pid in running
+            if (owner := sh.run(["ps", "-o", "user=", "-p", pid], check=False).strip()) and owner != me}
 
 
 def ours(config: Config, except_container: str | None = None) -> set[int]:
@@ -70,10 +63,11 @@ def ours(config: Config, except_container: str | None = None) -> set[int]:
 
 
 def choose(config: Config, container: str | None) -> Choice:
-    bad, theirs, mine = unusable(config), foreign(), ours(config, container)
+    running = apps()
+    bad, theirs, mine = unusable(config, running), foreign(running), ours(config, container)
     if config.gpu is not None:
         if config.gpu in bad:
-            raise SystemExit(f"gpu={config.gpu} is in gpu_exclude, or exclusive and in use")
+            raise SystemExit(f"gpu={config.gpu} is excluded, prohibited, or exclusive and in use")
         if config.gpu in mine:
             return Choice(config.gpu, f"gpu {config.gpu} is also held by another running round")
         if config.gpu in theirs:
@@ -89,4 +83,4 @@ def choose(config: Config, container: str | None) -> Choice:
             return Choice(index, f"every free card is in use by another user; sharing gpu {index}")
     if order:
         return Choice(order[0], f"every usable card already holds a round; sharing gpu {order[0]}")
-    raise SystemExit(f"no usable GPU; excluded or exclusive: {sorted(bad)}")
+    raise SystemExit(f"no usable GPU; excluded, prohibited, or exclusive and in use: {sorted(bad)}")
