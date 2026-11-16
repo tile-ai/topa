@@ -31,6 +31,7 @@ from topa.round import (
     pr_comments,
     remove_worktrees_under,
     render,
+    resume,
     round_slug,
     start,
     transition,
@@ -885,6 +886,24 @@ class TransitionTests(unittest.TestCase):
         self.move("STOPPED")
         with self.assertRaisesRegex(SystemExit, "cannot move from STOPPED to REQ; it can move to nothing"):
             self.move("REQ")
+
+    def test_a_person_resumes_a_stopped_round(self) -> None:
+        with self.assertRaisesRegex(SystemExit, "x-r1 is in REQ, not STOPPED"):
+            resume(self.config, "x-r1", "CLEAN", "go")
+        (self.dir / "report.md").write_text("## Stop records\n\nDisputed.\n")
+        self.move("STOPPED")
+        with self.assertRaisesRegex(SystemExit, "resumes only at one of"):
+            resume(self.config, "x-r1", "DONE", "go")
+        with self.assertRaisesRegex(SystemExit, "too long"):
+            resume(self.config, "x-r1", "CLEAN", "x" * 4000)
+        with mock.patch("topa.round.say") as told:
+            resume(self.config, "x-r1", "REVIEW", " keep the\ntest. ")
+        event = list(ledger.events())[-1]
+        self.assertEqual((event["from"], event["to"], event["by"], event["reason"]),
+                         ("STOPPED", "REVIEW", "person", "keep the test."))
+        self.assertEqual(ledger.rounds()["x-r1"]["phase"], "REVIEW")
+        self.assertTrue((self.dir / "report.md").read_text().endswith("resume at REVIEW. keep the test.\n"))
+        self.assertIn("resumed this round at REVIEW: keep the test.", told.call_args.args[2])
 
     def test_a_move_is_a_ledger_event_and_status_shows_the_state(self) -> None:
         self.move("HIR")

@@ -730,6 +730,31 @@ def transition(config: Config, target: str, reason: str, slug: str | None = None
                              **{"from": source, "to": target, "reason": reason, "commit": commit})
 
 
+def resume(config: Config, slug: str, target: str, decision: str) -> dict[str, Any]:
+    """A person's decision moves a STOPPED round back to an active state and tells its agent."""
+    current = find(config, slug)
+    kind = current.meta.get("kind", "perf")
+    decision = " ".join(decision.split())
+    if not decision:
+        raise SystemExit("give the decision with --reason")
+    if target not in states.FORWARD.get(kind, {}):
+        raise SystemExit(f"a {kind} round resumes only at one of {', '.join(states.FORWARD.get(kind, {}))}")
+    message = f"A person resumed this round at {target}: {decision} Continue from {target}."
+    if len(message) > SAY_LIMIT:
+        raise SystemExit(f"the decision is too long for a message; the limit is {SAY_LIMIT} characters")
+    with ledger.claim():
+        source = ledger.rounds().get(current.slug, {}).get("phase")
+        if source != "STOPPED":
+            raise SystemExit(f"{slug} is in {source}, not STOPPED")
+        with (current.dir / "report.md").open("a") as report:
+            report.write(f"\n- Decision of a person: resume at {target}. {decision}\n")
+        commit = sh.run(["git", "-C", current.meta["worktree"], "rev-parse", "HEAD"])
+        event = ledger.append("transition", round=current.slug, by="person",
+                              **{"from": source, "to": target, "reason": decision, "commit": commit})
+    say(config, slug, message)
+    return event
+
+
 # --- status -------------------------------------------------------------------------
 
 

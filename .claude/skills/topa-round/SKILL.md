@@ -27,6 +27,8 @@ Run `topa` from `PATH`. State lives in `~/.topa/`:
 - A message to an agent is one instruction in plain text, at most 4000 characters.
   Put long material in a file in the round directory and name the file.
 - The agent moves its round with `topa round transition`; do not run it for the agent.
+- A STOPPED round waits for the user's decision in its `## Stop records`. Run
+  `topa round resume <slug> <state> --reason "<decision>"` only with that decision.
 - Change the brief templates (`src/topa/kit/round/` in this repository) for future rounds,
   never a running round's `brief.md`. To reach a running round, use `say`.
 - `stop` without `--rm` stops the agent and the container (the GPU is free) and archives

@@ -87,6 +87,14 @@ def _round_transition(args: argparse.Namespace) -> int:
     return 0
 
 
+def _round_resume(args: argparse.Namespace) -> int:
+    from topa.round import resume
+
+    event = resume(config_module.load(), args.round, args.state, args.reason)
+    print(f"{event['round']}: {event['from']} -> {event['to']}")
+    return 0
+
+
 def _round_stop(args: argparse.Namespace) -> int:
     from topa.round import stop
 
@@ -186,6 +194,11 @@ def parser() -> argparse.ArgumentParser:
     p.add_argument("--reason", required=True)
     p.add_argument("--round", help="round slug; default: the round directory holding the cwd")
     p.set_defaults(func=_round_transition)
+    p = rounds.add_parser("resume", help="move a STOPPED round back to a state on a person's decision")
+    p.add_argument("round")
+    p.add_argument("state", choices=STATES)
+    p.add_argument("--reason", required=True, help="the decision")
+    p.set_defaults(func=_round_resume)
     p = rounds.add_parser("status", help="every round, its state, its agent and its PR")
     p.add_argument("--all", action="store_true", help="include removed rounds")
     p.add_argument("--json", action="store_true")

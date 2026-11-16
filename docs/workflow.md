@@ -97,6 +97,8 @@ REQ -> HIR -> FLOOR -> [OP, new-op and extend] -> IMPL -> CLEAN -> REVIEW -> FIN
   OP, IMPL, CLEAN), or stop (STOPPED).
 - The command refuses any other move, and a move whose checks fail; each move is a
   `transition` event in `ledger.jsonl`.
+- STOPPED ends the round until a person decides: `topa round resume <slug> <state>
+  --reason "<decision>"` moves it back to an active state and tells the agent.
 - `topa pr` runs only in state PR.
 
 | Edge | Checks |
