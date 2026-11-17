@@ -154,7 +154,7 @@ def render(history: dict[str, Any]) -> str:
         lines += [f"Earlier rounds of this op in {history['local_scope']}, newest first:", ""]
         for attempt in local[:MAX_LOCAL]:
             state = attempt["result"] or ("no result recorded" if attempt["report"] else "incomplete: no report.md")
-            issue = f", TileFoundry issue {attempt['tilefoundry_issue']}" if attempt["tilefoundry_issue"] else ""
+            issue = f", findings issue {attempt['tilefoundry_issue']}" if attempt["tilefoundry_issue"] else ""
             lines.append(f"- `{attempt['round']}` ({state}{issue}), report `{attempt['report'] or attempt['dir']}`")
             for title, excerpt in attempt["excerpts"].items():
                 lines.append(f"  - {title}: " + " ".join(excerpt.split()))

@@ -18,7 +18,7 @@ its fastest comparator:
    [states](#states), from classifying the comparators to opening the PR with `topa pr`.
    That command checks the evidence, opens the PR from your fork, and posts the test plan
    and the evidence as five comments.
-5. TileFoundry problems the agent hits go into one TileFoundry issue.
+5. TileFoundry problems the agent hits go into one issue on `tile-ai/topa`.
 6. A round that misses the bar on some rows still opens its PR when it beats main and
    slows no row; the unmet rows go under Result And Limitations. Otherwise it opens no PR
    and writes its stop records in `report.md`.
@@ -30,12 +30,20 @@ flowchart LR
     N["nightly benchmark"] -- "Perf Tracker page" --> Q["wiki queue"]
     Q -- "topa round start" --> A["agent + GPU container"]
     A -- "topa pr" --> P["TileOPs PR"]
-    A -- "findings" --> F["TileFoundry issue"]
+    A -- "findings" --> F["topa issue"]
     P --> N
     F -- "TileFoundry fix" --> A
 ```
 
 A merged PR moves the nightly. A TileFoundry fix reaches the next round.
+
+## Findings issues
+
+A round files its TileFoundry findings as one issue on `tile-ai/topa`, never on
+`tile-ai/TileFoundry`; a scheduled job forwards them. The issue is titled
+`<type>(<scope>,...): <summary>` and labelled `tilefoundry`, `type:<type>` and `scope:<scope>`
+per title scope. `FINDING_TYPES` and `FINDING_SCOPES` in `src/topa/gate.py` list the values,
+and the gate checks the title and labels `findings.json` records.
 
 ## Kinds and admission
 

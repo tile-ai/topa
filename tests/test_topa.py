@@ -435,6 +435,15 @@ class GateTests(unittest.TestCase):
                 with self.assertRaisesRegex(gate.GateError, "placeholder"):
                     self.validate()
 
+    def test_findings_issue_passes(self) -> None:
+        finding = {"id": "f", "classification": "c", "command": "c", "expected": "e", "actual": "a",
+                   "workaround_cost": "w", "public_surface": "p", "affected_workloads": [], "reproducer": "e/log"}
+        (self.round / "findings.json").write_text(json.dumps(
+            {"findings": [finding], "issue": "https://github.com/tile-ai/topa/issues/3",
+             "title": "fix(analysis,schedule): price a grid's waves once",
+             "labels": ["scope:schedule", "tilefoundry", "type:fix", "scope:analysis"]}))
+        self.validate()
+
     def test_each_defect_fails(self) -> None:
         finding = {"id": "f", "classification": "c", "command": "c", "expected": "e", "actual": "a",
                    "workaround_cost": "w", "public_surface": "p", "affected_workloads": [], "reproducer": "e/log"}
@@ -444,10 +453,19 @@ class GateTests(unittest.TestCase):
             "at least two placements": lambda: p.update(placements=p["placements"][:1]),
             "positive measured_us": lambda: p["iterations"][0].update(measured_us=0),
             "reviews must be a non-empty list": lambda: p.update(reviews=[]),
-            "one tile-ai/TileFoundry issue": lambda: (self.round / "findings.json").write_text(
-                json.dumps({"findings": [finding], "issue": "https://github.com/tile-ai/TileFoundry/pull/1"})),
+            "one tile-ai/topa issue": lambda: (self.round / "findings.json").write_text(
+                json.dumps({"findings": [finding], "issue": "https://github.com/tile-ai/TileFoundry/issues/1"})),
+            "title must read": lambda: (self.round / "findings.json").write_text(json.dumps(
+                {"findings": [finding], "issue": "https://github.com/tile-ai/topa/issues/1",
+                 "title": "fix(analysis, schedule): x", "labels": []})),
+            "scopes must be distinct and among": lambda: (self.round / "findings.json").write_text(json.dumps(
+                {"findings": [finding], "issue": "https://github.com/tile-ai/topa/issues/1",
+                 "title": "fix(analysis,kernel): x", "labels": []})),
+            "labels must be": lambda: (self.round / "findings.json").write_text(json.dumps(
+                {"findings": [finding], "issue": "https://github.com/tile-ai/topa/issues/1",
+                 "title": "fix(analysis,schedule): x", "labels": ["tilefoundry", None]})),
             "null when there is no finding": lambda: (self.round / "findings.json").write_text(
-                '{"findings": [], "issue": "https://github.com/tile-ai/TileFoundry/issues/1"}'),
+                '{"findings": [], "issue": "https://github.com/tile-ai/topa/issues/1"}'),
             "exact final HIR": lambda: (self.round / "work/final_hir.py").write_text(HIR + "# changed\n"),
             "title as a `# ` line": lambda: self.edit("pr-template.md", lambda t: t.split("\n", 1)[1]),
             "placeholder ```text": lambda: self.edit("pr-comments.md",
@@ -684,7 +702,7 @@ class RoundTests(unittest.TestCase):
         values = {name: name for name in ("SLUG", "ROUND_DIR", "UPSTREAM", "BRANCH", "TILEOPS_BASE",
                                            "TILEOPS_WORKTREE", "TILEFOUNDRY_BASE", "TILEFOUNDRY_SOURCE",
                                            "KNOWLEDGE", "TOPA", "PRIOR_ATTEMPTS", "REVIEWER", "CHECKLISTS",
-                                           "STATE_PATH")}
+                                           "FINDINGS_REPO", "FINDING_SCOPES", "STATE_PATH")}
         text = brief("general", values | _issue_work(bug, "general")[1])
         self.assertIn("> ## Repro\n> x = 1e36", text)
         self.assertIn("`Closes #2812`", text)
@@ -912,12 +930,12 @@ class TransitionTests(unittest.TestCase):
         with mock.patch("topa.pr.gate", side_effect=SystemExit("gated")), self.assertRaisesRegex(SystemExit, "gated"):
             pr.open_pr(self.config, "x-r1")
 
-
     def test_pr_gates_a_foundry_round_created_before_the_state_graph(self) -> None:
         ledger.LEDGER.write_text("")
         ledger.append("create", round="x-r1", kind="new-op")
         with mock.patch("topa.pr.gate", side_effect=SystemExit("gated")), self.assertRaisesRegex(SystemExit, "gated"):
             pr.open_pr(self.config, "x-r1")
+
 
 class EnvironmentTests(unittest.TestCase):
     def test_pane_drops_claude_variables_only(self) -> None:

@@ -22,6 +22,15 @@ class GateError(ValueError):
 
 # The kinds that build a kernel with TileFoundry and pass its records.
 FOUNDRY_KINDS = ("perf", "new-op", "extend")
+# The repository a round files its TileFoundry findings in; a scheduled job forwards them.
+FINDINGS_REPO = "tile-ai/topa"
+# A findings issue is titled `<type>(<scope>,...): <summary>` and labelled `tilefoundry`,
+# `type:<type>` and `scope:<scope>` per title scope, so a scheduled job can sort them.
+FINDING_TYPES = ("fix", "feat")
+FINDING_SCOPES = ("parser", "hir", "ir", "tir", "typeinfer", "analysis", "schedule", "evaluator", "check",
+                  "codegen", "nvidia", "cli")
+FINDING_TITLE = re.compile(r"(?P<type>[a-z]+)\((?P<scopes>[a-z]+(?:,[a-z]+)*)\): \S.*")
+
 # The repository's own tooling, and for a perf round what it is measured against; a new op adds
 # its benchmark and workloads, and changes only its manifest status line (`check_op`).
 FORBIDDEN_ROOTS = {
@@ -335,19 +344,40 @@ def _validate_comments(round_dir: Path, kind: str, final_hir: Path, result: str)
         raise GateError(f"Result And Limitations must open with **{result}**, the result of provenance.json")
 
 
+def _finding_labels(title: str) -> list[str]:
+    """The labels a findings issue with *title* carries; a malformed title raises GateError."""
+    match = FINDING_TITLE.fullmatch(title)
+    if not match:
+        raise GateError(f"findings.json title must read `<type>(<scope>,...): <summary>`, not {title!r}")
+    kind, scopes = match["type"], match["scopes"].split(",")
+    if kind not in FINDING_TYPES:
+        raise GateError(f"findings.json title type must be one of {', '.join(FINDING_TYPES)}, not {kind}")
+    unknown = [scope for scope in scopes if scope not in FINDING_SCOPES]
+    if unknown or len(set(scopes)) != len(scopes):
+        raise GateError(f"findings.json title scopes must be distinct and among {', '.join(FINDING_SCOPES)}; "
+                        f"got {match['scopes']}")
+    return ["tilefoundry", f"type:{kind}", *(f"scope:{scope}" for scope in scopes)]
+
+
 def _validate_findings(round_dir: Path) -> None:
     data = _load_json(_required_file(round_dir, "findings.json"))
     findings = data.get("findings")
     if not isinstance(findings, list):
         raise GateError("findings.json must contain a findings list")
-    # A round reports its findings to TileFoundry as one issue, so the link is one
+    # A round reports its TileFoundry findings as one issue, so the link is one
     # field for the whole file rather than one per finding.
     issue = data.get("issue")
     if findings:
-        if not isinstance(issue, str) or not re.fullmatch(r"https://github\.com/tile-ai/TileFoundry/issues/\d+", issue):
-            raise GateError("findings.json issue must be the one tile-ai/TileFoundry issue URL "
+        url = rf"https://github\.com/{re.escape(FINDINGS_REPO)}/issues/\d+"
+        if not isinstance(issue, str) or not re.fullmatch(url, issue):
+            raise GateError(f"findings.json issue must be the one {FINDINGS_REPO} issue URL "
                             "that holds every finding of this round")
-    elif issue is not None:
+        title = data.get("title")
+        expected = _finding_labels(title if isinstance(title, str) else "")
+        labels = data.get("labels")
+        if not isinstance(labels, list) or sorted(map(str, labels)) != sorted(expected):
+            raise GateError(f"findings.json labels must be {expected}, the labels of its title")
+    elif issue is not None or data.get("title") is not None or data.get("labels"):
         raise GateError("findings.json issue must be null when there is no finding")
     for finding in findings:
         if not isinstance(finding, dict) or not _real_text(finding.get("id")):

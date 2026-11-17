@@ -58,4 +58,4 @@ What each step keeps:
 | container and its GPU | running | stopped; GPU free | removed |
 | herdr pane and agent | running | closed | closed |
 
-The PR and the TileFoundry issue live on GitHub.
+The PR lives on TileOPs, and the findings issue on `tile-ai/topa`.

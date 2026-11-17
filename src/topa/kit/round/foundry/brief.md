@@ -161,8 +161,17 @@ Run the affected tests on the GPU, `scripts/validate_manifest.py`, the benchmark
   [Ending without a PR](#ending-without-a-pr) when it blocks the rest of the round.
 - Keep its reproducer as it fails, with the command and raw output, in
   `work/blocked/<finding-id>/`.
-- Before the PR or the stop report, open one issue on `tile-ai/TileFoundry` for all
+- Before the PR or the stop report, open one issue on `{{FINDINGS_REPO}}` for all
   findings, in the form `{{TILEFOUNDRY_SOURCE}}/CONTRIBUTING.md` sets.
+- Open no issue on `tile-ai/TileFoundry`. A scheduled job forwards findings from
+  `{{FINDINGS_REPO}}`.
+- Title the issue `<type>(<scope>,...): <summary>`, for example
+  `fix(analysis,schedule): price a grid's waves once`.
+  - `<type>` is `fix` when TileFoundry gets a case wrong and `feat` when it lacks one.
+  - Each `<scope>` is a TileFoundry component the findings touch, among {{FINDING_SCOPES}}.
+    Separate scopes with a comma and no space.
+- Label the issue `tilefoundry`, `type:<type>` and one `scope:<scope>` per title scope.
+- Retitle and relabel the issue when a later finding adds a scope.
 - Give each finding a section with its command, minimal HIR or TIR and raw output.
 - Add a later finding to the same issue. Open no issue without a finding.
 
@@ -189,6 +198,7 @@ Run the affected tests on the GPU, `scripts/validate_manifest.py`, the benchmark
 
 - Give `floor` one entry per workload, and `placements` at least two, exactly one chosen.
 - Record `program_diff` when an other-ops row is `unchanged`.
-- Write `findings.json` as `{"findings": [], "issue": null}`, or with the issue URL and per
-  finding `id`, `classification`, `command`, `expected`, `actual`, `workaround_cost`,
-  `public_surface`, `affected_workloads` and `reproducer`.
+- Write `findings.json` as `{"findings": [], "issue": null}`, or with the issue URL, its
+  `title` and `labels` as they stand on GitHub, and per finding `id`, `classification`,
+  `command`, `expected`, `actual`, `workaround_cost`, `public_surface`, `affected_workloads`
+  and `reproducer`.

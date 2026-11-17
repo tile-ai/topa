@@ -46,4 +46,4 @@ Read `rounds/<slug>/report.md`, `provenance.json`, the PR and its comments.
 `topa gate --round <slug>` rechecks the evidence. For a TileFoundry round, report the
 result (`bar met` or `below bar`), the rows still behind their fastest comparator and any
 row slower than main. For any round, report whether the PR resolves its issue and any
-TileFoundry issue the round filed.
+findings issue the round filed on `tile-ai/topa`.
