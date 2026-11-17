@@ -913,6 +913,12 @@ class TransitionTests(unittest.TestCase):
             pr.open_pr(self.config, "x-r1")
 
 
+    def test_pr_gates_a_foundry_round_created_before_the_state_graph(self) -> None:
+        ledger.LEDGER.write_text("")
+        ledger.append("create", round="x-r1", kind="new-op")
+        with mock.patch("topa.pr.gate", side_effect=SystemExit("gated")), self.assertRaisesRegex(SystemExit, "gated"):
+            pr.open_pr(self.config, "x-r1")
+
 class EnvironmentTests(unittest.TestCase):
     def test_pane_drops_claude_variables_only(self) -> None:
         env = {"PATH": "/usr/bin:/bin", "CLAUDECODE": "1", "CLAUDE_CODE_CHILD_SESSION": "1", "KEEP": "1"}

@@ -76,11 +76,14 @@ def _post_comments(config: Config, number: int, comments: list[tuple[str, str]],
 
 
 def open_pr(config: Config, slug: str | None = None, *, reviewed: bool = False, watch: bool = True) -> str:
-    """Gate the round, then publish its PR; a TileFoundry round must be in state PR."""
+    """Gate the round, then publish its PR; a TileFoundry round on the state graph must be in state PR.
+
+    A round created before the state graph has no recorded phase; its artifact gate still applies.
+    """
     found = find(config, slug)
     kind = found.meta.get("kind", "perf")
     phase = ledger.rounds().get(found.slug, {}).get("phase")
-    if kind in FOUNDRY_KINDS and phase != "PR":
+    if kind in FOUNDRY_KINDS and phase not in (None, "PR"):
         raise SystemExit(f"topa pr: the round is in state {phase}; run `topa round transition PR` first")
     current = gate(config, found.slug)
     sh.note("Artifact checks passed. Re-open the actual files before creating the PR:\n" + CHECKLIST[kind]
