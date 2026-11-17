@@ -170,7 +170,8 @@ Run the affected tests on the GPU, `scripts/validate_manifest.py`, the benchmark
   - `<type>` is `fix` when TileFoundry gets a case wrong and `feat` when it lacks one.
   - Each `<scope>` is a TileFoundry component the findings touch, among {{FINDING_SCOPES}}.
     Separate scopes with a comma and no space.
-- Label the issue `tilefoundry`, `type:<type>` and one `scope:<scope>` per title scope.
+- Label the issue with one `scope:<scope>` per title scope.
+- Add the label `type:feat` when `<type>` is `feat`. A `fix` takes no type label.
 - Retitle and relabel the issue when a later finding adds a scope.
 - Give each finding a section with its command, minimal HIR or TIR and raw output.
 - Add a later finding to the same issue. Open no issue without a finding.

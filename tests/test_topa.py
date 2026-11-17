@@ -441,7 +441,12 @@ class GateTests(unittest.TestCase):
         (self.round / "findings.json").write_text(json.dumps(
             {"findings": [finding], "issue": "https://github.com/tile-ai/topa/issues/3",
              "title": "fix(analysis,schedule): price a grid's waves once",
-             "labels": ["scope:schedule", "tilefoundry", "type:fix", "scope:analysis"]}))
+             "labels": ["scope:schedule", "scope:analysis"]}))
+        self.validate()
+        (self.round / "findings.json").write_text(json.dumps(
+            {"findings": [finding], "issue": "https://github.com/tile-ai/topa/issues/3",
+             "title": "feat(schedule): lower Concat of register tiles",
+             "labels": ["type:feat", "scope:schedule"]}))
         self.validate()
 
     def test_each_defect_fails(self) -> None:
@@ -463,7 +468,7 @@ class GateTests(unittest.TestCase):
                  "title": "fix(analysis,kernel): x", "labels": []})),
             "labels must be": lambda: (self.round / "findings.json").write_text(json.dumps(
                 {"findings": [finding], "issue": "https://github.com/tile-ai/topa/issues/1",
-                 "title": "fix(analysis,schedule): x", "labels": ["tilefoundry", None]})),
+                 "title": "fix(analysis,schedule): x", "labels": ["type:fix", "scope:analysis", "scope:schedule"]})),
             "null when there is no finding": lambda: (self.round / "findings.json").write_text(
                 '{"findings": [], "issue": "https://github.com/tile-ai/topa/issues/1"}'),
             "exact final HIR": lambda: (self.round / "work/final_hir.py").write_text(HIR + "# changed\n"),

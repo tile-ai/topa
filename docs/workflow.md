@@ -41,8 +41,8 @@ A merged PR moves the nightly. A TileFoundry fix reaches the next round.
 
 A round files its TileFoundry findings as one issue on `tile-ai/topa`, never on
 `tile-ai/TileFoundry`; a scheduled job forwards them. The issue is titled
-`<type>(<scope>,...): <summary>` and labelled `tilefoundry`, `type:<type>` and `scope:<scope>`
-per title scope. `FINDING_TYPES` and `FINDING_SCOPES` in `src/topa/gate.py` list the values,
+`<type>(<scope>,...): <summary>` and labelled `scope:<scope>` per title scope, plus `type:feat`
+for a feat; a fix carries no type label. `FINDING_TYPES` and `FINDING_SCOPES` in `src/topa/gate.py` list the values,
 and the gate checks the title and labels `findings.json` records.
 
 ## Kinds and admission

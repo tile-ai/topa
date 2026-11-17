@@ -24,8 +24,8 @@ class GateError(ValueError):
 FOUNDRY_KINDS = ("perf", "new-op", "extend")
 # The repository a round files its TileFoundry findings in; a scheduled job forwards them.
 FINDINGS_REPO = "tile-ai/topa"
-# A findings issue is titled `<type>(<scope>,...): <summary>` and labelled `tilefoundry`,
-# `type:<type>` and `scope:<scope>` per title scope, so a scheduled job can sort them.
+# A findings issue is titled `<type>(<scope>,...): <summary>` and labelled `scope:<scope>` per
+# title scope, plus `type:feat` for a feat, so a scheduled job can sort them; a fix needs no type label.
 FINDING_TYPES = ("fix", "feat")
 FINDING_SCOPES = ("parser", "hir", "ir", "tir", "typeinfer", "analysis", "schedule", "evaluator", "check",
                   "codegen", "nvidia", "cli")
@@ -356,7 +356,7 @@ def _finding_labels(title: str) -> list[str]:
     if unknown or len(set(scopes)) != len(scopes):
         raise GateError(f"findings.json title scopes must be distinct and among {', '.join(FINDING_SCOPES)}; "
                         f"got {match['scopes']}")
-    return ["tilefoundry", f"type:{kind}", *(f"scope:{scope}" for scope in scopes)]
+    return [*(["type:feat"] if kind == "feat" else []), *(f"scope:{scope}" for scope in scopes)]
 
 
 def _validate_findings(round_dir: Path) -> None:
