@@ -28,6 +28,7 @@ topa round start <Op>      # one agent, one GPU, one op of the queue, or a spec-
 topa round start --issue <N>   # or one TileOPs issue: bug, feature, docs, perf or a new op
 topa round status          # every round, its state, its agent and its PR
 topa review prepare <PR>   # review a TileOPs PR once, driven by the topa-review skill
+topa round review <PR>     # review a TileOPs PR on each change until it settles
 ```
 
 [Getting started](docs/usage.md) covers the prerequisites and each step.

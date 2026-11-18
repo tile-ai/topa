@@ -18,6 +18,9 @@ Run `topa` from `PATH`. State lives in `~/.topa/`:
 | what the agent is doing | `herdr agent read <pane>` (pane from status) |
 | to tell the agent something | `topa round say <slug> "<text>"` |
 | a new round | `topa round start <Op> [--issue <N>]` or `topa round start --issue <N>` (`--dry-run` first if unsure) |
+| to review a PR until it settles | `topa round review <PR>` |
+| what a review round is doing | `herdr pane read <pane>`; `rounds/<slug>/loop.json` and `attempts/` |
+| review findings to promote | `topa review lessons` |
 | to stop the agent, keep everything | `topa round stop <slug>` |
 | to release everything | `topa round stop <slug> --rm` |
 | to run a command against a TileOPs branch outside a round | `cd <worktree> && topa run <cmd>` |
@@ -39,6 +42,14 @@ Run `topa` from `PATH`. State lives in `~/.topa/`:
 - TileLang facts a round found are in its `report.md` under `## TileLang knowledge`.
   Promoting them into `src/topa/knowledge/tilelang.md` is a human decision:
   show them, do not merge them unasked.
+
+## Review rounds
+
+- A review round's pane runs `topa review loop`, not an agent; `say` does not reach it.
+- The loop ends on its own: settled (approving a PR someone else wrote), PR closed, or a limit.
+  `status` shows why in the third column. Stop the round afterwards to free its container.
+- Show `## Review knowledge` candidates from `report.md`; promote them into
+  `src/topa/knowledge/review.md` or a checklist only when asked.
 
 ## Reviewing a round's PR
 

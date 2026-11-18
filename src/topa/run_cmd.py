@@ -11,10 +11,12 @@ from __future__ import annotations
 
 import os
 import sys
+from importlib.resources import files
 from pathlib import Path
 
 from topa import gpu, sh
 from topa.config import Config
+from topa.container import bench_mounts
 
 
 def run(config: Config, worktree: Path, command: list[str]) -> int:
@@ -25,7 +27,7 @@ def run(config: Config, worktree: Path, command: list[str]) -> int:
     if choice.warning:
         sh.note(f"warning: {choice.warning}")
 
-    mounts = ["--volume", f"{worktree}:{worktree}"]
+    mounts = ["--volume", f"{worktree}:{worktree}", *bench_mounts(config, Path(str(files("topa"))), choice.index)]
     # A linked worktree keeps its objects in the main checkout, so git inside the
     # container needs that directory at the path .git points at.
     common = sh.run(["git", "-C", worktree, "rev-parse", "--path-format=absolute", "--git-common-dir"], check=False)
@@ -44,6 +46,7 @@ def run(config: Config, worktree: Path, command: list[str]) -> int:
         "--env", f"NVIDIA_VISIBLE_DEVICES={choice.index}",
         "--env", "NVIDIA_DRIVER_CAPABILITIES=compute,utility",
         "--env", "CUDA_VISIBLE_DEVICES=0",
+        "--env", f"TILEOPS_PHYSICAL_GPU={choice.index}",
         "--env", f"PYTHONPATH={worktree}/src:{worktree}",
         "--env", "TILELANG_CACHE_DIR=/ci-cache/tilelang",
         "--env", "TRITON_CACHE_DIR=/ci-cache/triton",

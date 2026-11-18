@@ -15,4 +15,7 @@
 | `topa gate` / `topa pr [--reviewed]` | check the evidence / open the PR (run by the agent; a TileFoundry round must be in state PR) |
 | `topa review prepare <PR>` | write the PR's review inputs and check out its head |
 | `topa review post <PR>` | post the findings as one COMMENT review |
+| `topa round review <PR> [--dry-run]` | start a review round: review the PR again on each change until it settles, approving a PR someone else wrote |
+| `topa review loop <slug>` | drive a review round |
+| `topa review lessons` | the knowledge entries ready to become checklist rows, and every finding a review round saw fixed |
 | `topa run <cmd>` | one command against a TileOPs worktree in a throwaway container |

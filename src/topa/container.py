@@ -69,6 +69,13 @@ def _auth(worktree_git: Path) -> tuple[list[str], list[str], tuple[object, ...]]
     return mounts, env, (worktree_git, git_config, gh_config, gh_bin, ssh_dir)
 
 
+def bench_mounts(config: Config, package: Path, card: int) -> list[str]:
+    config.locks.mkdir(parents=True, exist_ok=True)
+    (config.locks / f"gpu-{card}.lock").touch()
+    return ["--volume", f"{config.locks}:/opt/topa/locks",
+            "--volume", f"{package / 'kit' / 'container' / 'topa-bench'}:/usr/local/bin/topa-bench:ro"]
+
+
 def _spellings(*paths: Path) -> list[Path]:
     """Each path, then its resolved form where a symlink makes the two differ.
 
@@ -140,7 +147,7 @@ def start(
     exists = sh.docker_ok(config, "container", "inspect", container)
     if exists:
         expected = {"worktree": str(worktree), "round": str(round_dir), "foundry": foundry_base,
-                    "image": image, "auth": auth_key}
+                    "image": image, "auth": auth_key, "locks": str(config.locks)}
         stale = any(_label(config, container, key) != value for key, value in expected.items())
         held = int(_label(config, container, "gpu"))
         if stale or (config.gpu is not None and held != config.gpu):
@@ -152,6 +159,7 @@ def start(
     if not exists:
         choice = chosen = gpu.choose(config, container)
         package = Path(str(files("topa")))
+        bench = bench_mounts(config, package, chosen.index)
         sh.docker(
             config, "run", "--detach", "--init", "--name", container,
             "--label", f"topa.round={slug}",
@@ -161,6 +169,7 @@ def start(
             "--label", f"topa.image={image}",
             "--label", f"topa.auth={auth_key}",
             "--label", f"topa.gpu={chosen.index}",
+            "--label", f"topa.locks={config.locks}",
             "--add-host", "host.docker.internal:host-gateway",
             "--runtime=nvidia", "--ipc=host", "--shm-size=16g",
             "--publish", "127.0.0.1::22",
@@ -168,6 +177,7 @@ def start(
               for path in _spellings(host) for arg in ("--volume", f"{host}:{path}")],
             # The brief names the review checklists and the knowledge file by their host paths.
             *[arg for path in _spellings(package) for arg in ("--volume", f"{package}:{path}:ro")],
+            *bench,
             "--volume", f"{foundry.stage / 'wheels'}:/opt/topa/wheels:ro",
             "--volume", f"{foundry.stage / 'build-tools'}:/opt/topa/build-tools:ro",
             "--volume", f"{tilelang_cache}:/ci-cache/tilelang",

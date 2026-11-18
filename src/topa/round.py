@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 import re
 import shlex
 import shutil
@@ -27,6 +28,10 @@ from topa.gate import FINDING_SCOPES, FINDINGS_REPO, FOUNDRY_KINDS
 PROMPT = ("Read `brief.md` in the current working directory and complete it. A human may "
           "reach you with `topa round say {slug} \"...\"`; treat that as a new instruction.")
 SAY_LIMIT = 4000
+# What a review loop needs from topa's environment, besides every `TOPA_*` override: a login
+# shell's rc files may drop the proxy.
+LOOP_ENVIRONMENT = ("GH_CONFIG_DIR", "http_proxy", "https_proxy", "all_proxy", "no_proxy",
+                    "HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY", "NO_PROXY")
 PLACEHOLDER = re.compile(r"\{\{([A-Z_]+)\}\}")
 
 
@@ -226,8 +231,12 @@ def _write_round_dir(config: Config, path: Path, kind: str, values: dict[str, An
     shutil.copytree(kit() / kind, path, dirs_exist_ok=True, ignore=ignore)
     (path / "pr-comments.md").write_text(pr_comments(kind))
     (path / "brief.md").write_text(brief(kind, values))
+    _hook_settings(config, path, topa)
+
+
+def _hook_settings(config: Config, path: Path, topa: Path) -> None:
     claude = path / ".claude"
-    claude.mkdir(exist_ok=True)
+    claude.mkdir(parents=True, exist_ok=True)
     settings = {
         **({"model": config.model} if config.model else {}),
         "hooks": {"PreToolUse": [{"matcher": "Bash", "hooks": [
@@ -582,7 +591,8 @@ def start(config: Config, name: str | None = None, *, issue: int | None = None, 
                 number is not None and view.get("issue") == number)
             if taken and view["state"] in ledger.LIVE:
                 raise SystemExit(f"round {view['round']} already works {taken[0]}")
-        live = [view["round"] for view in views.values() if view["state"] in ledger.LIVE]
+        live = [view["round"] for view in views.values()
+                if view["state"] in ledger.LIVE and view.get("kind") != "review"]
         if len(live) >= config.max_rounds and not force:
             raise SystemExit(f"{len(live)} rounds are live ({', '.join(live)}); max_rounds is "
                              f"{config.max_rounds}. Stop one, or pass --force.")
@@ -682,6 +692,75 @@ def start(config: Config, name: str | None = None, *, issue: int | None = None, 
     return meta
 
 
+# --- review rounds ----------------------------------------------------------------------
+
+
+def start_review(config: Config, pr: int, *, dry_run: bool = False) -> dict[str, Any]:
+    sh.require("claude", "docker", "gh", "git", "herdr", "ssh", "ssh-keygen", "nvidia-smi")
+    topa = topa_binary()
+    view = sh.gh_json("api", f"repos/{config.upstream}/pulls/{pr}")
+    if view["state"] != "open":
+        raise SystemExit(f"PR #{pr} is {view['state']}")
+    with ledger.claim():
+        views = ledger.rounds()
+        for other in views.values():
+            if (other.get("kind") == "review" and other.get("pr") == pr and other["state"] in ledger.LIVE
+                    and other.get("upstream", config.upstream) == config.upstream):
+                raise SystemExit(f"round {other['round']} already reviews PR #{pr}")
+        slug = round_slug(f"review-{pr}", views.values())
+        worktree = config.worktree_root / f"tileops-{slug}"
+        round_dir = config.rounds / slug
+        plan = {"round": slug, "kind": "review", "pr": pr, "upstream": config.upstream, "title": view["title"],
+                "worktree": str(worktree), "round_dir": str(round_dir)}
+        if dry_run:
+            return plan
+        if round_dir.exists() or worktree.exists():
+            raise SystemExit(f"{round_dir} or {worktree} already exists")
+        ledger.append("create", **plan)
+    try:
+        sh.bootstrap_docker(config)
+        repo = config.tileops_repo
+        remote = sh.github_remote(repo, config.upstream)
+        ref = review.review_ref(config, pr)
+        sh.run(["git", "-C", repo, "fetch", "--quiet", remote, f"+pull/{pr}/head:{ref}"])
+        sh.run(["git", "-C", repo, "worktree", "add", "--quiet", "--detach", worktree, ref])
+        round_dir.mkdir(parents=True)
+        _hook_settings(config, round_dir, topa)
+
+        sh.note("preparing TileFoundry")
+        prepared = foundry.prepare(config, (worktree / "pyproject.toml").read_text())
+        source, foundry_git = foundry.source(config, slug, prepared.commit)
+        ledger.append("foundry", round=slug, foundry_source=str(source), tilefoundry_base=prepared.commit)
+
+        sh.note("starting the container")
+        started = container.start(config, slug=slug, worktree=worktree, round_dir=round_dir,
+                                  foundry=prepared, foundry_source=source, foundry_git=foundry_git,
+                                  foundry_base=prepared.commit)
+        created = sh.herdr("workspace", "create", "--cwd", str(round_dir), "--label", slug, "--no-focus")
+        workspace = created["workspace"]["workspace_id"]
+        pane = created["root_pane"]["pane_id"]
+        meta = {
+            **plan, "tilefoundry_base": prepared.commit,
+            "pyproject": hashlib.sha256((worktree / "pyproject.toml").read_bytes()).hexdigest(),
+            "foundry_source": str(source), "container": started.name, "alias": started.alias,
+            "gpu": started.gpu, "image": started.image, "workspace": workspace, "pane": pane,
+            "model": config.model, "effort": config.effort,
+        }
+        Round(round_dir, meta).save()
+        (round_dir / "environment.md").write_text(_environment(meta, started.gpu_warning, prepared.report["mismatched"]))
+        ledger.append("start", round=slug, **{k: v for k, v in meta.items() if k != "round"})
+        sh.note(f"starting the review loop in {pane}")
+        _cd_pane(pane, round_dir)
+        passed = [f"{name}={value}" for name, value in os.environ.items()
+                  if value and (name in LOOP_ENVIRONMENT or name.startswith("TOPA_"))]
+        sh.herdr("pane", "run", pane, shlex.join(["env", *passed, str(topa), "review", "loop", slug]))
+    except BaseException as error:
+        ledger.append("fail", round=slug, error=str(error).strip()[:2000])
+        sh.note(f"round {slug} failed to start; release what it holds with: topa round stop {slug} --rm")
+        raise
+    return meta
+
+
 # --- say ----------------------------------------------------------------------------
 
 
@@ -757,8 +836,9 @@ def status(config: Config, *, every: bool = False) -> list[dict[str, Any]]:
         except sh.CommandError:
             pr = None
         rows.append({
-            "round": view["round"], "state": view["state"], "phase": view.get("phase"),
-            "op": view.get("op") or (f"#{view['issue']}" if view.get("issue") else None),
+            "round": view["round"], "state": view["state"], "phase": view.get("phase") or view.get("review_end"),
+            "op": view.get("op") or (f"#{view['issue']}" if view.get("issue") else None)
+                  or (f"review PR #{view['pr']}" if view.get("pr") else None),
             "branch": view.get("branch"), "gpu": view.get("gpu"), "pane": view.get("pane"),
             "agent": agent.get("agent_status") if agent else None,
             "pr": pr, "updated": view.get("updated"),
@@ -844,7 +924,11 @@ def stop(config: Config, slug: str, *, remove: bool = False) -> list[str]:
     meta = current.meta
     done: list[str] = []
     pane = meta.get("pane")
-    if pane and _agent(pane):
+    if pane and meta.get("kind") == "review":
+        sh.herdr("pane", "send-keys", pane, "C-c", check=False)
+        time.sleep(1.5)
+        done.append(f"stopped the review loop in {pane}")
+    elif pane and _agent(pane):
         sh.herdr("agent", "send-keys", pane, "esc", check=False)
         time.sleep(0.5)
         sh.herdr("agent", "send-keys", pane, "C-c", "C-c", check=False)
@@ -886,7 +970,9 @@ def stop(config: Config, slug: str, *, remove: bool = False) -> list[str]:
         done.append(f"removed {count} worktree(s) the round made in {current.dir}")
     done += [f"could not remove {path}; remove it by hand" for path in left]
     worktree = Path(meta["worktree"]) if meta.get("worktree") else None
-    if meta.get("workspace"):
+    if meta.get("workspace") and meta.get("kind") == "review":
+        sh.herdr("workspace", "close", meta["workspace"], check=False)
+    elif meta.get("workspace"):
         sh.herdr("worktree", "remove", "--workspace", meta["workspace"], "--force", check=False)
     if worktree and worktree.exists():
         sh.run(["git", "-C", config.tileops_repo, "worktree", "remove", "--force", worktree], check=False)

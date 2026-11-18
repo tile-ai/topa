@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import contextlib
+import hashlib
 import json
 import os
 import re
@@ -8,10 +9,11 @@ import shutil
 import subprocess
 import tempfile
 import unittest
+from collections import Counter
 from pathlib import Path
 from unittest import mock
 
-from topa import config, gate, gpu, history, ledger, pr, review, setup_cmd, states, wiki
+from topa import config, gate, gpu, history, ledger, pr, review, review_loop, setup_cmd, states, wiki
 from topa.container import foreign_files
 from topa.hook import decide
 from topa.round import (
@@ -985,6 +987,111 @@ diff --git a/docs/a b.md b/docs/a b.md
 """
 
 
+class ReviewLoopTests(unittest.TestCase):
+    LAST = {"state": "open", "head": "a", "base": "main", "title": "t", "author": "x", "body": "c", "labels": "l",
+            "comments": "m", "threads": "t"}
+
+    def test_an_attempt_starts_on_each_kind_of_change_and_not_otherwise(self) -> None:
+        self.assertEqual(review_loop.changed(self.LAST, None), "first review")
+        self.assertIsNone(review_loop.changed(dict(self.LAST), self.LAST))
+        for key, reason in review_loop.REASONS:
+            self.assertEqual(review_loop.changed({**self.LAST, key: "new"}, self.LAST), reason)
+
+    def test_findings_need_a_verdict_on_every_thread_and_anchors_on_the_diff(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            folder = Path(tmp)
+            (folder / "pr.diff").write_text("--- a/f.py\n+++ b/f.py\n@@ -1,1 +1,2 @@\n x\n+y\n")
+            (folder / "threads.json").write_text(json.dumps([{"id": 5, "path": "f.py", "line": 1, "comments": []}]))
+            good = {"summary": "s", "comments": [{"path": "f.py", "line": 2, "body": "b"}],
+                    "threads": [{"id": 5, "status": "open"}], "open_faults": 2}
+            self.assertEqual(review.problems(good, folder), [])
+            self.assertEqual(len(review.problems({**good, "threads": []}, folder)), 1)
+            off = {**good, "comments": [{"path": "f.py", "line": 9, "body": "b"}]}
+            self.assertIn("not on a line of pr.diff", review.problems(off, folder)[0])
+            self.assertTrue(review.problems([], folder))
+            self.assertTrue(review.problems({**good, "comments": [None], "threads": [None]}, folder))
+            self.assertTrue(review.problems({**good, "open_faults": None}, folder))
+            self.assertTrue(review.problems({**good, "comments": [{"path": "f.py", "line": 2, "body": None}]}, folder))
+            self.assertTrue(review.problems({**good, "threads": [{"id": 5, "status": "open"}, {"status": "fixed"}]},
+                                            folder))
+
+    def test_a_pr_settles_only_with_no_open_fault(self) -> None:
+        clean = {"summary": "s", "comments": [], "threads": [{"id": 1, "status": "fixed"}], "open_faults": 0}
+        self.assertTrue(review.settled(clean))
+        self.assertFalse(review.settled({**clean, "threads": [{"id": 1, "status": "open"}]}))
+        self.assertFalse(review.settled({**clean, "comments": [{"path": "f", "line": 1, "body": "b"}]}))
+        self.assertFalse(review.settled({**clean, "open_faults": 1}))
+
+    def test_the_signature_leaves_out_what_topa_posted(self) -> None:
+        view = {"state": "open", "head": {"sha": "h"}, "base": {"ref": "main", "sha": "b"}, "user": {"login": "x"},
+                "title": "t", "body": "", "labels": []}
+        comments = lambda own: [{"id": i, "type": "User", "body": "b"} for i in (1, 2) if i != own]
+        with mock.patch("topa.sh.gh_json", return_value=view), \
+                mock.patch("topa.review.thread_roots", return_value=set()), \
+                mock.patch("topa.sh.run", return_value="m"):
+            with mock.patch("topa.review._gh", side_effect=lambda c, e: comments(None)):
+                mine = review_loop.signature(defaults(), 1, own={"comments": [2]})
+            with mock.patch("topa.review._gh", side_effect=lambda c, e: comments(2 if e == "pulls/1/comments" else None)):
+                without = review_loop.signature(defaults(), 1)
+        self.assertEqual(mine["comments"], without["comments"])
+
+    def test_the_driver_reviews_a_new_head_in_full_and_a_reply_by_recheck(self) -> None:
+        sig = lambda **changes: {**self.LAST, "author": "someone", **changes}
+        polls = iter([sig(), sig(), sig(), sig(comments="reply"), sig(comments="reply"), sig(comments="reply")])
+        findings = iter([{"summary": "s", "comments": [{"path": "f", "line": 1, "body": "b"}], "threads": [],
+                          "open_faults": 1},
+                         {"summary": "No findings.", "comments": [], "threads": [{"id": 50, "status": "fixed"}],
+                          "open_faults": 0}])
+        posts = iter([{"review": "u1", "posted": 1, "id": 40, "comment_ids": [50]},
+                      {"review": "u2", "posted": 0, "id": 41, "comment_ids": []}])
+        with tempfile.TemporaryDirectory() as tmp:
+            round_dir = Path(tmp)
+            (round_dir / "attempts").mkdir()
+            (round_dir / "pyproject.toml").write_text("p")
+            current = mock.Mock(dir=round_dir, meta={"pr": 7, "worktree": tmp,
+                                                     "pyproject": hashlib.sha256(b"p").hexdigest()})
+            modes = []
+            with mock.patch("topa.round.find", return_value=current), \
+                    mock.patch("topa.ledger.rounds", return_value={"r": {"state": "running"}}), \
+                    mock.patch("topa.ledger.append"), mock.patch("topa.sh.gh_login", return_value="me"), \
+                    mock.patch("topa.sh.note"), mock.patch("topa.review_loop._claude"), \
+                    mock.patch("topa.review_loop.signature", side_effect=lambda *a: next(polls)), \
+                    mock.patch("topa.review.prepare", side_effect=lambda c, pr, folder, wt, fixed: (
+                        folder.mkdir(parents=True), {"head": "a"})[1]), \
+                    mock.patch("topa.review_loop._review", side_effect=lambda *a: (
+                        modes.append(a[-1] is not None), next(findings))[1]), \
+                    mock.patch("topa.review.post", side_effect=lambda *a, **k: next(posts)) as post:
+                self.assertEqual(review_loop.drive(defaults(), "r", review_loop.Limits(poll=0)), 0)
+            state = json.loads((round_dir / "loop.json").read_text())
+            events = [json.loads(line) for line in (round_dir / "events.jsonl").read_text().splitlines()]
+        self.assertEqual(modes, [False, True])
+        self.assertEqual([call.kwargs["event"] for call in post.call_args_list], ["COMMENT", "APPROVE"])
+        self.assertEqual(state["own"], {"reviews": [40, 41], "comments": [50]})
+        self.assertEqual(state["end"], "settled")
+        self.assertEqual(state["fixed"], [50])
+        self.assertEqual([e["event"] for e in events], ["attempt", "posted", "attempt", "posted", "end"])
+        self.assertEqual(events[2]["changed"], {"comments": ["m", "reply"]})
+
+    def test_lessons_collect_fixed_findings_and_ready_entries(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            rounds, knowledge = Path(tmp) / "rounds", Path(tmp) / "review.md"
+            knowledge.write_text("# K\n\n## Candidates\n\n- [2 PRs] two\n- [1 PR] one\n\n## Do not flag\n\n- [3 PRs] x\n")
+            attempt = rounds / "review-7-r1" / "attempts" / "2"
+            attempt.mkdir(parents=True)
+            (attempt.parents[1] / "round.json").write_text(json.dumps({"kind": "review", "pr": 7, "upstream": "o/r"}))
+            (attempt.parents[1] / "report.md").write_text("## Review knowledge\n\nNone.\n")
+            (attempt / "threads.json").write_text(json.dumps([{"id": 9, "comments": ["topa: bad"]},
+                                                              {"id": 10, "comments": ["topa: other"]}]))
+            (attempt / "result.json").write_text(json.dumps({"threads": [{"id": 9, "status": "fixed", "evidence": "e"},
+                                                                         {"id": 10, "status": "open"}]}))
+            with mock.patch.object(review, "KNOWLEDGE", knowledge), \
+                    mock.patch.object(config.Config, "rounds", property(lambda self: rounds)):
+                found = review_loop.lessons(defaults())
+        self.assertEqual(found["ready"], ["- [2 PRs] two"])
+        self.assertEqual([f["link"] for f in found["fixed"]], ["https://github.com/o/r/pull/7#discussion_r9"])
+        self.assertEqual(len(found["reports"]), 1)
+
+
 class ReviewTests(unittest.TestCase):
     def test_checklists_follow_changed_paths(self) -> None:
         names = lambda paths: [path.name for path in review.checklists(paths)]
@@ -1089,6 +1196,23 @@ class GpuTests(unittest.TestCase):
             self.assertEqual(gpu.unusable(defaults(), []), {3})
             self.assertEqual(gpu.unusable(defaults(), [(0, "7"), (1, "8")]), {1, 3})
             self.assertEqual(gpu.unusable(defaults(gpu_exclude=(0,)), []), {0, 3})
+
+    def test_a_round_shares_the_card_with_the_fewest_rounds_and_avoids_other_users(self):
+        def query(*fields):
+            return {("index", "compute_mode"): [[str(i), "Default"] for i in range(3)],
+                    ("index", "memory.used"): [["0", "0"], ["1", "500"], ["2", "900"]]}[fields]
+
+        def pick(mine, theirs):
+            with mock.patch("topa.gpu._query", side_effect=query), \
+                    mock.patch("topa.gpu.apps", return_value=[]), \
+                    mock.patch("topa.gpu.foreign", return_value=theirs), \
+                    mock.patch("topa.gpu.ours", return_value=Counter(mine)):
+                return gpu.choose(defaults(), None)
+
+        self.assertEqual(pick([0, 0, 1], set()), gpu.Choice(2))
+        self.assertEqual(pick([0, 1, 2], {1}), gpu.Choice(0))
+        self.assertEqual(pick([], {0, 1, 2}).index, 0)
+        self.assertIsNotNone(pick([], {0, 1, 2}).warning)
 
 
 if __name__ == "__main__":

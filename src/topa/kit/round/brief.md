@@ -37,6 +37,7 @@ The code, the PR and any issue you open are public.
 - Lines that run only `git`, `gh`, the reviewer, `topa`, file commands or text tools run on
   the host; every other line runs in the round container, at the same paths.
 - Do not write `ssh` or `docker` commands.
+- Prefix every timing run, the repository benchmark included, with `topa-bench`.
 
 {{KIND}}
 

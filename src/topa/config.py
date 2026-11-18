@@ -89,6 +89,10 @@ class Config:
         return HOME / "cache"
 
     @property
+    def locks(self) -> Path:
+        return HOME / "locks"
+
+    @property
     def checkouts(self) -> Path:
         """Per-round TileFoundry checkouts, removed by `topa round stop --rm`."""
         return HOME / "checkouts" / "tilefoundry"

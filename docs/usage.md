@@ -45,7 +45,7 @@ file; a `TOPA_<NAME>` environment variable overrides one setting for one command
 | `worktree_root` | Where round worktrees go | `~/TileOPs-worktrees` |
 | `runner_image` | The TileOPs runner image the agent image builds on | the TileOPs CI image |
 | `agent_image` | The tag `topa setup` builds | `topa:agent` |
-| `gpu` | The one card every round uses | topa picks a card, sharing one only when none is free |
+| `gpu` | The one card every round uses | topa picks the usable card with the fewest rounds |
 | `gpu_exclude` | Cards topa never uses | none |
 | `docker_host` | `DOCKER_HOST` for topa's Docker calls | Docker's default |
 | `docker_bootstrap` | A command run before Docker is used, such as one starting a rootless daemon | none |
@@ -56,7 +56,7 @@ file; a `TOPA_<NAME>` environment variable overrides one setting for one command
 | `model`, `effort` | The round agent's model and effort | the agent's own defaults |
 | `reviewer` | The coding agent command a round reviews its diff with, run on the host from the TileOPs worktree: a fresh session apart from the round agent that cannot write, takes the prompt as its last argument and prints the review | required |
 | `tilefoundry_commit` | The TileFoundry commit new rounds read | the newest main |
-| `max_rounds` | How many rounds may be live at once | 2 |
+| `max_rounds` | How many rounds other than review rounds may be live at once | 2 |
 
 A config file from an older topa fails to load until you delete its `tracker` line. Then:
 

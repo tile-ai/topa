@@ -1,0 +1,27 @@
+#!/usr/bin/env bash
+# topa-bench <command>...: run a timing command with the card's lock held, after the card
+# shows 0% use for TOPA_BENCH_IDLE seconds (default 5); after TOPA_BENCH_WAIT seconds
+# (default 600) it runs on a busy card and says so.
+set -euo pipefail
+
+(( $# )) || { echo "usage: topa-bench <command>..." >&2; exit 2; }
+card="${TILEOPS_PHYSICAL_GPU:?topa-bench runs in a topa container}"
+exec 9>"/opt/topa/locks/gpu-${card}.lock"
+if ! flock --nonblock 9; then
+  echo "topa-bench: another benchmark holds gpu ${card}; waiting" >&2
+  flock 9
+fi
+
+idle=0 waited=0
+while (( idle < ${TOPA_BENCH_IDLE:-5} )); do
+  if (( waited >= ${TOPA_BENCH_WAIT:-600} )); then
+    echo "topa-bench: gpu ${card} stayed busy for ${waited}s; timing on a shared card" >&2
+    break
+  fi
+  util=$(nvidia-smi --query-gpu=utilization.gpu --format=csv,noheader,nounits | head -1)
+  if [[ "${util// }" == 0 ]]; then idle=$((idle + 1)); else idle=0; fi
+  sleep 1
+  waited=$((waited + 1))
+done
+
+exec "$@"

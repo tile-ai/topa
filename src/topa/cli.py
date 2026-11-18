@@ -137,6 +137,33 @@ def _review_post(args: argparse.Namespace) -> int:
     return 0
 
 
+def _review_loop(args: argparse.Namespace) -> int:
+    from topa.review_loop import Limits, drive
+
+    return drive(config_module.load(), args.round, Limits(poll=args.poll))
+
+
+def _review_lessons(args: argparse.Namespace) -> int:
+    from topa.review_loop import lessons
+
+    _print_json(lessons(config_module.load()))
+    return 0
+
+
+def _round_review(args: argparse.Namespace) -> int:
+    from topa.round import start_review
+
+    meta = start_review(config_module.load(), args.pr, dry_run=args.dry_run)
+    if args.dry_run:
+        _print_json(meta)
+        return 0
+    print(f"round   {meta['round']}  review PR #{meta['pr']}  gpu {meta['gpu']}")
+    print(f"dir     {meta['round_dir']}")
+    print(f"watch   herdr pane read {meta['pane']}")
+    print(f"stop    topa round stop {meta['round']} [--rm]")
+    return 0
+
+
 def _hook(args: argparse.Namespace) -> int:
     from topa.hook import pre_tool_use
 
@@ -177,6 +204,10 @@ def parser() -> argparse.ArgumentParser:
     p.add_argument("--dry-run", action="store_true")
     p.add_argument("--force", action="store_true", help="start beyond max_rounds")
     p.set_defaults(func=_round_start)
+    p = rounds.add_parser("review", help="review a TileOPs PR on every change until it settles")
+    p.add_argument("pr", type=int)
+    p.add_argument("--dry-run", action="store_true")
+    p.set_defaults(func=_round_review)
     p = rounds.add_parser("say", help="send the round's agent a message")
     p.add_argument("round")
     p.add_argument("text", nargs="+")
@@ -213,7 +244,7 @@ def parser() -> argparse.ArgumentParser:
     p.add_argument("--no-watch", action="store_true", help="do not wait on the PR checks")
     p.set_defaults(func=_pr)
 
-    review = sub.add_parser("review", help="review a TileOPs PR once").add_subparsers(
+    review = sub.add_parser("review", help="review a TileOPs PR").add_subparsers(
         dest="review_command", required=True)
     p = review.add_parser("prepare", help="write the PR's review inputs and check out its head")
     p.add_argument("pr", type=int)
@@ -221,6 +252,12 @@ def parser() -> argparse.ArgumentParser:
     p = review.add_parser("post", help="post findings.json as one COMMENT review")
     p.add_argument("pr", type=int)
     p.set_defaults(func=_review_post)
+    p = review.add_parser("loop", help="drive a review round")
+    p.add_argument("round")
+    p.add_argument("--poll", type=int, default=180, help="seconds between polls")
+    p.set_defaults(func=_review_loop)
+    p = review.add_parser("lessons", help="the review findings and knowledge entries a person can promote")
+    p.set_defaults(func=_review_lessons)
 
     hook = sub.add_parser("hook", help="round agent hooks").add_subparsers(dest="hook_command", required=True)
     p = hook.add_parser("pre-tool-use", help="route a round's shell commands into its container")

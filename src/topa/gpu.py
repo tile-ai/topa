@@ -1,16 +1,7 @@
-"""Choosing the one GPU a round runs on.
-
-Never usable: the cards in `gpu_exclude`, a card in the Prohibited compute mode, and an
-exclusive card while a process computes on it. Avoided when there is a choice: a card
-another of our rounds holds -- between kernels it shows no memory and no process -- and
-a card another user computes on. A round never waits for a card: its early phases need
-no GPU, so when every usable card is shared it takes one and says so, and the timings
-show whether that mattered.
-"""
-
 from __future__ import annotations
 
 import getpass
+from collections import Counter
 from dataclasses import dataclass
 
 from topa import sh
@@ -50,37 +41,33 @@ def foreign(running: list[tuple[int, str]]) -> set[int]:
             if (owner := sh.run(["ps", "-o", "user=", "-p", pid], check=False).strip()) and owner != me}
 
 
-def ours(config: Config, except_container: str | None = None) -> set[int]:
-    """Cards our other running round containers hold."""
+def ours(config: Config, except_container: str | None = None) -> Counter[int]:
+    """How many of our other running round containers hold each card."""
     out = sh.docker(config, "ps", "--filter", "label=topa.gpu",
                     "--format", '{{.Names}} {{.Label "topa.gpu"}}', check=False)
-    held = set()
+    held: Counter[int] = Counter()
     for line in out.splitlines():
         name, _, index = line.partition(" ")
         if name != except_container and index.strip().isdigit():
-            held.add(int(index))
+            held[int(index)] += 1
     return held
 
 
 def choose(config: Config, container: str | None) -> Choice:
     running = apps()
-    bad, theirs, mine = unusable(config, running), foreign(running), ours(config, container)
+    bad, theirs = unusable(config, running), foreign(running)
     if config.gpu is not None:
         if config.gpu in bad:
             raise SystemExit(f"gpu={config.gpu} is excluded, prohibited, or exclusive and in use")
-        if config.gpu in mine:
-            return Choice(config.gpu, f"gpu {config.gpu} is also held by another running round")
         if config.gpu in theirs:
             return Choice(config.gpu, f"gpu {config.gpu} is also in use by another user")
         return Choice(config.gpu)
-    by_memory = sorted(_query("index", "memory.used"), key=lambda row: (int(row[1]), int(row[0])))
-    order = [int(index) for index, _ in by_memory if int(index) not in bad]
-    for index in order:
-        if index not in mine and index not in theirs:
-            return Choice(index)
-    for index in order:
-        if index not in mine:
-            return Choice(index, f"every free card is in use by another user; sharing gpu {index}")
-    if order:
-        return Choice(order[0], f"every usable card already holds a round; sharing gpu {order[0]}")
-    raise SystemExit(f"no usable GPU; excluded, prohibited, or exclusive and in use: {sorted(bad)}")
+    mine = ours(config, container)
+    memory = {int(index): int(used) for index, used in _query("index", "memory.used")}
+    order = sorted((index for index in memory if index not in bad),
+                   key=lambda index: (index in theirs, mine[index], memory[index], index))
+    if not order:
+        raise SystemExit(f"no usable GPU; excluded, prohibited, or exclusive and in use: {sorted(bad)}")
+    if order[0] in theirs:
+        return Choice(order[0], f"every usable card is in use by another user; sharing gpu {order[0]}")
+    return Choice(order[0])
