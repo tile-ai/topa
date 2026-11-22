@@ -110,11 +110,15 @@ REQ -> HIR -> FLOOR -> [OP, new-op and extend] -> IMPL -> CLEAN -> REVIEW -> FIN
 | Edge | Checks |
 | --- | --- |
 | HIR -> FLOOR | the `reference_check` record |
-| FLOOR -> OP / IMPL | a floor record per row (new-op: per admitted case); at least two placements, one chosen |
+| FLOOR -> OP / IMPL | a floor record per row (new-op before its benchmark: one per admitted case); at least two placements, one chosen |
 | OP -> IMPL | new-op: the manifest diff is the op's `status: spec-only` turned `implemented`, alone; extend: no manifest diff; `base_tests` records the run of the new tests on the base |
-| IMPL -> CLEAN | `schedule`, `twin_check`, `iterations`, `benchmark`; the Performance table, a row per row (new-op: per admitted case), under the bar of the result; `program_diff` when an other-ops row is `unchanged`; extend: the rows to serve alone in the results table, every other admitted case in the other-ops table; perf: the declared production kernel changed |
+| IMPL -> CLEAN | `schedule`, `twin_check`, `iterations`, `benchmark`; the Performance table, a row per row (new-op: per case the benchmark reports, as many per op as the manifest admits), under the bar of the result, each row's DRAM floor the one `topa round measure` gives; `program_diff` when an other-ops row is `unchanged`; extend: the rows to serve alone in the results table, every other admitted case in the other-ops table; perf: the declared production kernel changed |
 | REVIEW -> PR | the round has published its PR (a `pr` event in the ledger) |
 | any -> STOPPED | `## Stop records` in `report.md` |
+
+A row is named `<Op> <case_id>`, the case id being the parametrized part of its benchmark test
+name. Its DRAM floor is its first `tileops_bytes` that `topa round measure` records, over the
+HBM bandwidth of the TileFoundry device the `target` setting names.
 
 ## The gate
 

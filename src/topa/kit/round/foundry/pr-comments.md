@@ -54,13 +54,13 @@ Method: <how main, the candidate and the comparators were alternated on one GPU,
 
 | Workload | main (us) | candidate (us) | DRAM floor (us) | candidate / DRAM floor | <comparator> (us) | ratio |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: |
-| <workload> | <main median> | <candidate median> | <DRAM floor> | <candidate / DRAM floor> | <comparator median> | <comparator / candidate> |
+| <Op> <case_id> | <main median> | <candidate median> | <DRAM floor of topa round measure> | <candidate / DRAM floor> | <comparator median> | <comparator / candidate> |
 
 Other rows checked against main:
 
 | Op | Workload | main (us) | candidate (us) |
 | --- | --- | ---: | ---: |
-| <op> | <workload> | <main median> | <candidate median> |
+| <op> | <case_id> | <main median> | <candidate median> |
 
 ## Result And Limitations
 

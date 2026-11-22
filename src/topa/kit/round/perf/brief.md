@@ -35,6 +35,8 @@ Optimize the op with [TileFoundry](https://github.com/tile-ai/TileFoundry) towar
 
 {{FOUNDRY_COMMANDS}}
 
+{{FOUNDRY_MEASURE}}
+
 ### Requirement and comparators
 
 1. Locate the gap (kernel body, tuning pick, launch count or host idle time) with CUPTI
@@ -46,6 +48,7 @@ Optimize the op with [TileFoundry](https://github.com/tile-ai/TileFoundry) towar
 {{FOUNDRY_CLASSES}}
 
 4. List the last two classes in Result And Limitations.
+5. Write `bench`, and run `topa round measure "base" --base`.
 
 Exit: every pair is classified, and each row behind has a comparable comparator. If one has
 none, follow [Ending without a PR](#ending-without-a-pr).

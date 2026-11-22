@@ -95,6 +95,30 @@ def _round_stop(args: argparse.Namespace) -> int:
     return 0
 
 
+def _round_measure(args: argparse.Namespace) -> int:
+    from topa.round import measure_round
+
+    print(measure_round(config_module.load(), args.title, args.round, base=args.base))
+    return 0
+
+
+def _round_trace(args: argparse.Namespace) -> int:
+    from topa import trace
+    from topa.round import _project_dir, find
+
+    current = find(config_module.load(), args.round)
+    # Claude Code keeps a running round's transcripts; `topa round stop` archives them into the round.
+    live = _project_dir(current.dir)
+    view = ledger.rounds().get(current.slug, {"round": current.slug})
+    text = json.dumps(trace.export(current.dir, view, live if live.is_dir() else current.dir / "session",
+                                   published=args.published), indent=2, ensure_ascii=False) + "\n"
+    if args.out:
+        args.out.write_text(text, encoding="utf-8")
+    else:
+        sys.stdout.write(text)
+    return 0
+
+
 def _round_log(args: argparse.Namespace) -> int:
     for record in ledger.events():
         if args.round in (None, record.get("round")):
@@ -222,6 +246,16 @@ def parser() -> argparse.ArgumentParser:
     p.add_argument("round")
     p.add_argument("--rm", action="store_true", help="also remove container, worktree and checkout")
     p.set_defaults(func=_round_stop)
+    p = rounds.add_parser("measure", help="time the round's benchmark nodes and record the rows (run by the agent)")
+    p.add_argument("title")
+    p.add_argument("--base", action="store_true", help="time the round's TileOPs base instead of HEAD")
+    p.add_argument("--round", help="round slug; default: the round directory holding the cwd")
+    p.set_defaults(func=_round_measure)
+    p = rounds.add_parser("trace", help="the round's phases, analyses, measurements and session as one trace")
+    p.add_argument("round")
+    p.add_argument("--published", action="store_true", help="keep phases, analyses and measurements only")
+    p.add_argument("-o", "--out", type=Path)
+    p.set_defaults(func=_round_trace)
     p = rounds.add_parser("log", help="print ledger events")
     p.add_argument("round", nargs="?")
     p.set_defaults(func=_round_log)

@@ -28,6 +28,8 @@ toward this bar.
 
 {{FOUNDRY_COMMANDS}}
 
+{{FOUNDRY_MEASURE}}
+
 ### Requirement and comparators
 
 1. Read the issue when there is one, the op's manifest entry (signature, workloads,
@@ -59,6 +61,7 @@ Exit: every pair is classified, and every case has a comparable comparator.
    only when the manifest needs them.
 5. Run the new tests on the base, where the op does not exist, and record the failing run
    as `base_tests`, `{"command": "<pytest>", "report": "<r>"}`, in `provenance.json`.
+6. Write `bench` for the new benchmark, and run `topa round measure "first kernel"`.
 
 Exit: the Op, its tests and its benchmark exist, and the failing run on the base is
 recorded.
@@ -88,6 +91,6 @@ add the `foundry` label.
 
 - A new op may wrap an existing kernel: `production_kernel` need not change, and the twin
   check still runs.
-- Name each `floor` record's `workload`, and the first cell of each Performance row, by its
-  case exactly as the requirement lists it, such as `llama3-8b-prefill {T: float16}`.
-  `topa round transition` and `topa gate` require one of each per case.
+- Name each `floor` record's `workload`, and the first cell of each Performance row,
+  `<Op> <case_id>`. `topa round transition` and `topa gate` require one of each per case the
+  measurement reports.

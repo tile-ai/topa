@@ -20,6 +20,7 @@ Run `topa` from `PATH`. State lives in `~/.topa/`:
 | a new round | `topa round start <Op> [--issue <N>]` or `topa round start --issue <N>` (`--dry-run` first if unsure) |
 | to review a PR until it settles | `topa round review <PR>` |
 | what a review round is doing | `herdr pane read <pane>`; `rounds/<slug>/loop.json` and `attempts/` |
+| a round's work as one trace | `topa round trace <slug>` (`--published` drops the session) |
 | review findings to promote | `topa lessons` |
 | to stop the agent, keep everything | `topa round stop <slug>` |
 | to release everything | `topa round stop <slug> --rm` |

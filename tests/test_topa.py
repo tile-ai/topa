@@ -13,7 +13,7 @@ from collections import Counter
 from pathlib import Path
 from unittest import mock
 
-from topa import config, gate, gpu, history, ledger, pr, review, review_loop, setup_cmd, states, wiki
+from topa import config, gate, gpu, history, ledger, measure, pr, review, review_loop, setup_cmd, states, trace, wiki
 from topa.container import foreign_files
 from topa.hook import decide
 from topa.round import (
@@ -42,6 +42,8 @@ from topa.round import status as round_status
 HIR = 'class Operator:\n    def kernel(self, x):\n        return tf.schedule((x,), op=T.cuda.sm90.Wgmma(n=16))\n'
 PAGE = Path(__file__).parent / "fixtures" / "Perf-Tracker-2026-11-06.md"
 PAGE_URL = "https://github.com/tile-ai/TileOPs/wiki/Perf-Tracker-2026-11-06"
+# An HBM bandwidth of one byte per microsecond: a row's DRAM floor in microseconds is its byte count.
+BANDWIDTH = 1e6
 
 
 def defaults(**changes) -> config.Config:
@@ -64,6 +66,7 @@ def filled(name: str, result: str = "bar met", kind: str = "perf") -> str:
     text = text.replace("sha256:<image digest>", "sha256:" + "a" * 64)
     text = text.replace("**<bar met | below bar>**", f"**{result}**").replace("<bar met | below bar>", result)
     text = text.replace("Op: <Op>", "Op: AFwdOp").replace("#<N>", "#7").replace("<benchmark module>", "benchmarks.ops.bench_a")
+    text = text.replace("<Op> <case_id>", "AFwdOp 1").replace("<DRAM floor of topa round measure>", "1.00")
     text = re.sub(r"^<[^\n]*>$", "1", text, flags=re.MULTILINE)
     return gate.PLACEHOLDER.sub("1", text)
 
@@ -146,7 +149,7 @@ class GateTests(unittest.TestCase):
             "production_kernel": "src/tileops/kernels/k.py:K",
             "reference_check": {"command": "tilefoundry check work/final_hir.py:M --expected r.pt --json e/pass.json",
                                 "report": "e/pass.json"},
-            "floor": [analyze("--roofline", workload="1")],
+            "floor": [analyze("--roofline", workload="AFwdOp 1")],
             "placements": [analyze("--performance", placement="a", chosen=True),
                            analyze("--performance", placement="b", chosen=False)],
             "schedule": {"command": "tilefoundry schedule finalize work/final_hir.py:M work/final.tir",
@@ -156,13 +159,22 @@ class GateTests(unittest.TestCase):
             "tests": run, "benchmark": run, "reviews": ["e/log"],
         }
         self.write_provenance()
-        self.workloads, self.measured = ("1",), 1
+        self.workloads, self.measured = ("AFwdOp 1",), 1
+        self.measure("AFwdOp 1")
 
     def tearDown(self) -> None:
         self.tmp.cleanup()
 
     def validate(self) -> dict:
         return gate.validate_round(self.round, self.repo, workloads=self.workloads, measured=self.measured)
+
+    def measure(self, *names: str, floor: float = 1) -> None:
+        """One measurement of the rows *names*, each with a DRAM floor of *floor* us."""
+        rows = [{"op": name.split(" ")[0], "case_id": name.split(" ", 1)[1], "status": "measured", "us": 1.0,
+                 "timing": "cupti", "l2_flush": "f", "bytes": floor, "comparators": {}} for name in names]
+        (self.round / measure.RECORDS).write_text(json.dumps({
+            "ts": "2026-11-22T00:00:00+00:00", "title": "t", "commit": "c" * 40, "base": False, "xml": "x",
+            "gpu": None, "busy_card": False, "target": "t", "hbm_bandwidth": BANDWIDTH, "rows": rows}) + "\n")
 
     def write_provenance(self) -> None:
         (self.round / "provenance.json").write_text(json.dumps(self.provenance))
@@ -173,12 +185,12 @@ class GateTests(unittest.TestCase):
     def test_main_and_the_candidate_differ_only_beyond_the_noise(self) -> None:
         """main / candidate below 0.99 is slower; candidate / main below 0.99 beats main."""
         table = (self.round / "pr-comments.md").read_text()
-        row = "| 1 | 1 | 1 | 1 | 1 | 1 | 1 |"
+        row = "| AFwdOp 1 | 1 | 1 | 1.00 | 1 | 1 | 1 |"
         for result, main, error in (("bar met", "0.99", None), ("bar met", "0.989", "is slower than main"),
                                     ("below bar", "1.005", "must beat main"), ("below bar", "1.011", None)):
             self.provenance["result"] = result
             self.write_provenance()
-            text = table.replace(row, f"| 1 | {main} | 1 | 1 | 1 | 1 | 1 |")
+            text = table.replace(row, f"| AFwdOp 1 | {main} | 1 | 1.00 | 1 | 1 | 1 |")
             (self.round / "pr-comments.md").write_text(text.replace("**bar met**", f"**{result}**"))
             self.edit("pr-template.md", lambda t: re.sub(r"Result: .*", f"Result: {result}", t))
             if error is None:
@@ -211,19 +223,20 @@ class GateTests(unittest.TestCase):
         self.assertEqual(self.validate()["result"], "bar met")
         # Only a pair of markers in an other-ops row stands for main's program; a results row needs times.
         for old, new in ((untimed, "| BFwdOp | w | unchanged | 1 |"),
-                         ("| 1 | 1 | 1 | 1 | 1 | 1 | 1 |", "| 1 | unchanged | unchanged | 1 | 1 | 1 | 1 |")):
+                         ("| AFwdOp 1 | 1 | 1 | 1.00 | 1 | 1 | 1 |", "| AFwdOp 1 | unchanged | unchanged | 1.00 | 1 | 1 | 1 |")):
             with self.subTest(new):
                 (self.round / "pr-comments.md").write_text(table.replace(old, new))
                 with self.assertRaisesRegex(gate.GateError, "needs positive times"):
                     self.validate()
 
     def test_tie_within_a_timer_step_meets_the_bar(self) -> None:
-        self.edit("pr-comments.md", lambda t: t.replace("| 1 | 1 | 1 | 1 | 1 | 1 | 1 |", "| 1 | 2 | 1.02 | 0.5 | 1 | 1 | 0.98 |")
+        self.measure("AFwdOp 1", floor=0.5)
+        self.edit("pr-comments.md", lambda t: t.replace("| AFwdOp 1 | 1 | 1 | 1.00 | 1 | 1 | 1 |", "| AFwdOp 1 | 2 | 1.02 | 0.50 | 1 | 1 | 0.98 |")
                   .replace("| timer step (us) | 1 |", "| timer step (us) | 0.02 |"))
         self.assertEqual(self.validate()["result"], "bar met")
 
     def test_tie_at_the_dram_floor_meets_the_bar(self) -> None:
-        self.edit("pr-comments.md", lambda t: t.replace("| 1 | 1 | 1 | 1 | 1 | 1 | 1 |", "| 1 | 2 | 1 | 1 | 1 | 0.5 | 0.5 |")
+        self.edit("pr-comments.md", lambda t: t.replace("| AFwdOp 1 | 1 | 1 | 1.00 | 1 | 1 | 1 |", "| AFwdOp 1 | 2 | 1 | 1.00 | 1 | 0.5 | 0.5 |")
                   .replace("| timer step (us) | 1 |", "| timer step (us) | 0.02 |"))
         self.assertEqual(self.validate()["result"], "bar met")
 
@@ -260,10 +273,11 @@ class GateTests(unittest.TestCase):
 
     def test_perf_issue_round_takes_its_rows_from_provenance(self) -> None:
         self.edit("pr-template.md", lambda t: t.replace("\n\nOp:", "\nRefs #7\n\nOp:"))
-        self.provenance["workloads"] = ["1"]
+        self.provenance["workloads"] = ["AFwdOp 1"]
         self.write_provenance()
         self.assertEqual(gate.validate_round(self.round, self.repo, issue=7)["result"], "bar met")
-        for message, workloads in {"floor lacks the rows behind w2": ["1", "w2"], "non-empty list": []}.items():
+        for message, workloads in {"floor lacks the rows behind AFwdOp w2": ["AFwdOp 1", "AFwdOp w2"],
+                                   "non-empty list": []}.items():
             with self.subTest(message):
                 self.provenance["workloads"] = workloads
                 self.write_provenance()
@@ -275,8 +289,8 @@ class GateTests(unittest.TestCase):
         body = filled("pr-template.md", kind="new-op").replace("\n\nOp:", "\nCloses #7\n\nOp:")
         (self.round / "pr-template.md").write_text(body)
         (self.round / "pr-comments.md").write_text(filled("pr-comments.md", kind="new-op"))
-        self.provenance |= {"workloads": ["1"], "base_tests": {"command": "pytest t", "report": "e/log"}}
-        self.inventory = ("1",)
+        self.provenance |= {"base_tests": {"command": "pytest t", "report": "e/log"}}
+        self.inventory = ("a {T: float16}",)
         self.commit(**{MANIFEST_PATH: MANIFEST.format(a="implemented", b="spec-only")})
 
     def validate_new_op(self) -> dict:
@@ -301,18 +315,29 @@ class GateTests(unittest.TestCase):
         self.provenance["result"] = "below bar"
         self.write_provenance()
         self.edit("pr-template.md", lambda t: t.replace("Result: bar met", "Result: below bar"))
+        self.measure("AFwdOp 1", floor=0.5)
         self.edit("pr-comments.md", lambda t: t.replace("**bar met**", "**below bar**")
-                  .replace("| 1 | 1 | 1 | 1 | 1 | 1 |", "| 1 | 1 | 0.5 | 1 | 0.5 | 0.5 |"))
+                  .replace("| AFwdOp 1 | 1 | 1.00 | 1 | 1 | 1 |", "| AFwdOp 1 | 1 | 0.50 | 1 | 0.5 | 0.5 |"))
         self.assertEqual(self.validate_new_op()["result"], "below bar")
+
+    def test_a_new_op_before_its_benchmark_names_one_floor_record_per_admitted_case(self) -> None:
+        self.new_op()
+        self.measure()
+        evidence = gate.Evidence(self.round, self.repo, "new-op", 7, op="AFwdOp", inventory=self.inventory)
+        gate.check_floor(evidence)
+        self.provenance["floor"][0]["workload"] = "1"
+        self.write_provenance()
+        with self.assertRaisesRegex(gate.GateError, "one record per admitted case, each named `AFwdOp <case_id>`"):
+            gate.check_floor(gate.Evidence(self.round, self.repo, "new-op", 7, op="AFwdOp", inventory=self.inventory))
 
     def test_new_op_row_without_a_candidate_time_fails(self) -> None:
         """No main column checks the candidate cell, so the ratio check must, for 0, nan, text or none."""
         self.new_op()
         table = (self.round / "pr-comments.md").read_text()
-        for row in ("| 1 | 0 | 1 | 1 | 1 | 1 |", "| 1 | nan | 1 | 1 | 1 | 1 |", "| 1 | x | 1 | 1 | 1 | 1 |", "| 1 |"):
+        for row in ("| AFwdOp 1 | 0 | 1.00 | 1 | 1 | 1 |", "| AFwdOp 1 | nan | 1.00 | 1 | 1 | 1 |", "| AFwdOp 1 | x | 1.00 | 1 | 1 | 1 |", "| AFwdOp 1 |"):
             with self.subTest(row):
-                (self.round / "pr-comments.md").write_text(table.replace("| 1 | 1 | 1 | 1 | 1 | 1 |", row))
-                with self.assertRaisesRegex(gate.GateError, "row '1' needs a positive candidate time"):
+                (self.round / "pr-comments.md").write_text(table.replace("| AFwdOp 1 | 1 | 1.00 | 1 | 1 | 1 |", row))
+                with self.assertRaisesRegex(gate.GateError, "row 'AFwdOp 1' needs a positive candidate time"):
                     self.validate_new_op()
 
     def test_new_op_defect_fails(self) -> None:
@@ -323,14 +348,19 @@ class GateTests(unittest.TestCase):
             "line Closes #7": lambda: self.edit("pr-template.md", lambda t: t.replace("Closes #7", "Refs #7")),
             "schedule must be an object": lambda: p.pop("schedule"),
             "findings.json": lambda: (self.round / "findings.json").unlink(),
-            # The admitted inventory, not the provenance workloads, names the cases.
-            "floor lacks the rows behind w2": lambda: (setattr(self, "inventory", ("1", "w2")),
-                                                       p.update(workloads=["1"])),
+            # The measured cases, not the provenance workloads, name the rows.
+            "floor lacks the rows behind AFwdOp w2": lambda: (
+                setattr(self, "inventory", ("a {T: float16}", "b")), self.measure("AFwdOp 1", "AFwdOp w2"),
+                p.update(workloads=["AFwdOp 1"])),
             "results table has 1 rows; the op has 2 measured rows": lambda: (
-                setattr(self, "inventory", ("1", "w2")), p["floor"].append({**p["floor"][0], "workload": "w2"})),
+                setattr(self, "inventory", ("a {T: float16}", "b")), self.measure("AFwdOp 1", "AFwdOp w2"),
+                p["floor"].append({**p["floor"][0], "workload": "AFwdOp w2"})),
+            "reports {'AFwdOp': 1} cases per op; the manifest admits {'AFwdOp': 2}": lambda: setattr(
+                self, "inventory", ("a {T: float16}", "b")),
             "no admitted inventory": lambda: setattr(self, "inventory", ()),
-            "more than one timer step behind": lambda: self.edit(
-                "pr-comments.md", lambda t: t.replace("| 1 | 1 | 1 | 1 | 1 | 1 |", "| 1 | 1 | 0.5 | 1 | 0.5 | 0.5 |")
+            "no measurement yet": lambda: (self.round / measure.RECORDS).unlink(),
+            "more than one timer step behind": lambda: self.measure("AFwdOp 1", floor=0.5) or self.edit(
+                "pr-comments.md", lambda t: t.replace("| AFwdOp 1 | 1 | 1.00 | 1 | 1 | 1 |", "| AFwdOp 1 | 1 | 0.50 | 1 | 0.5 | 0.5 |")
                 .replace("| timer step (us) | 1 |", "| timer step (us) | 0.02 |")),
             "row 'OtherFwdOp w' is slower than main": lambda: self.edit(
                 "pr-comments.md", lambda t: t.replace("| --- | --- | ---: | ---: |\n| 1 | 1 | 1 | 1 |",
@@ -363,12 +393,13 @@ class GateTests(unittest.TestCase):
         self.edit_extend_tables("| AFwdOp | b |")
         self.provenance |= {"workloads": ["AFwdOp a"], "base_tests": {"command": "pytest t", "report": "e/log"}}
         self.provenance["floor"][0]["workload"] = "AFwdOp a"
-        self.inventory = ("AFwdOp a", "AFwdOp b")
+        self.inventory = ("AFwdOp a {T: float16}", "AFwdOp b {T: float16}")
+        self.measure("AFwdOp a", "AFwdOp b")
         self.write_provenance()
 
     def edit_extend_tables(self, other: str) -> None:
         (self.round / "pr-comments.md").write_text(filled("pr-comments.md", kind="extend").replace(
-            "| 1 | 1 | 1 | 1 | 1 | 1 |", "| AFwdOp a | 1 | 1 | 1 | 1 | 1 |").replace(
+            "| AFwdOp 1 | 1 | 1.00 | 1 | 1 | 1 |", "| AFwdOp a | 1 | 1.00 | 1 | 1 | 1 |").replace(
             "| --- | --- | ---: | ---: |\n| 1 |", f"| --- | --- | ---: | ---: |\n{other}"))
 
     def validate_extend(self) -> dict:
@@ -384,10 +415,11 @@ class GateTests(unittest.TestCase):
         self.write_provenance()
         self.assertEqual(self.validate_extend()["result"], "bar met")
         (self.round / "report.md").write_text("## Stop records\n\n(1), (2) and (3) hold for AFwdOp a.\n")
+        self.measure("AFwdOp a", "AFwdOp b", floor=0.5)
         self.provenance["result"] = "below bar"
         self.write_provenance()
         self.edit("pr-comments.md", lambda t: t.replace("**bar met**", "**below bar**")
-                  .replace("| AFwdOp a | 1 | 1 | 1 | 1 | 1 |", "| AFwdOp a | 1 | 0.5 | 2 | 0.5 | 0.5 |")
+                  .replace("| AFwdOp a | 1 | 1.00 | 1 | 1 | 1 |", "| AFwdOp a | 1 | 0.50 | 2 | 0.5 | 0.5 |")
                   .replace("| timer step (us) | 1 |", "| timer step (us) | 0.02 |"))
         self.assertEqual(self.validate_extend()["result"], "below bar")
 
@@ -400,9 +432,9 @@ class GateTests(unittest.TestCase):
             "no table has the cases AFwdOp b": lambda: self.edit_extend_tables("| OtherFwdOp | b |"),
             "row 'AFwdOp b' is slower than main": lambda: self.edit_extend_tables("| AFwdOp | b | 1 | 2 |"),
             "results table holds AFwdOp b, which are not rows to serve": lambda: (
-                self.edit_extend_tables("| OtherFwdOp | w | 1 | 1 |"), self.edit("pr-comments.md", lambda t: t.replace("| AFwdOp a | 1 | 1 | 1 | 1 | 1 |",
-                                                      "| AFwdOp a | 1 | 1 | 1 | 1 | 1 |\n| AFwdOp b | 1 | 1 | 1 | 1 | 1 |"))),
-            "provenance workloads AFwdOp z are not admitted cases": lambda: p.update(workloads=["AFwdOp z"]),
+                self.edit_extend_tables("| OtherFwdOp | w | 1 | 1 |"), self.edit("pr-comments.md", lambda t: t.replace("| AFwdOp a | 1 | 1.00 | 1 | 1 | 1 |",
+                                                      "| AFwdOp a | 1 | 1.00 | 1 | 1 | 1 |\n| AFwdOp b | 1 | 1 | 1 | 1 | 1 |"))),
+            "provenance workloads AFwdOp z are not cases the benchmark reports": lambda: p.update(workloads=["AFwdOp z"]),
             "forbidden paths: src/tileops/manifest/spec/a.yaml": lambda: self.commit(
                 **{MANIFEST_PATH: MANIFEST.format(a="implemented", b="spec-only")}),
             # A file moved out of a forbidden root is still a change under it.
@@ -495,25 +527,34 @@ class GateTests(unittest.TestCase):
                 "pr-comments.md", lambda t: t.replace("**bar met**", "**below bar**")),
             "below bar result must beat main": lambda: (p.update(result="below bar"), self.edit(
                 "pr-comments.md", lambda t: t.replace("**bar met**", "**below bar**"))),
-            "more than one timer step behind": lambda: self.edit(
-                "pr-comments.md", lambda t: t.replace("| 1 | 1 | 1 | 1 | 1 | 1 | 1 |", "| 1 | 1 | 1 | 0.5 | 1 | 0.5 | 0.5 |")
+            "more than one timer step behind": lambda: self.measure("AFwdOp 1", floor=0.5) or self.edit(
+                "pr-comments.md", lambda t: t.replace("| AFwdOp 1 | 1 | 1 | 1.00 | 1 | 1 | 1 |", "| AFwdOp 1 | 1 | 1 | 0.50 | 1 | 0.5 | 0.5 |")
                 .replace("| timer step (us) | 1 |", "| timer step (us) | 0.02 |")),
-            "rows 1 appear more than once": lambda: self.edit(
-                "pr-comments.md", lambda t: t.replace("| 1 | 1 | 1 | 1 | 1 | 1 | 1 |", "| 1 | 1 | 1 | 1 | 1 | 1 | 1 |\n| 1 | 2 | 1 | 1 | 1 | 1 | 1 |")),
+            "rows AFwdOp 1 appear more than once": lambda: self.edit(
+                "pr-comments.md", lambda t: t.replace("| AFwdOp 1 | 1 | 1 | 1.00 | 1 | 1 | 1 |", "| AFwdOp 1 | 1 | 1 | 1.00 | 1 | 1 | 1 |\n| AFwdOp 1 | 2 | 1 | 1.00 | 1 | 1 | 1 |")),
             "timer step must be a positive": lambda: self.edit(
                 "pr-comments.md", lambda t: t.replace("| timer step (us) | 1 |", "| timer step (us) | x |")),
             "states ratio 1.0, its times give 0.5000": lambda: self.edit(
-                "pr-comments.md", lambda t: t.replace("| 1 | 1 | 1 | 1 | 1 | 1 | 1 |", "| 1 | 1 | 1 | 1 | 1 | 0.5 | 1 |")),
+                "pr-comments.md", lambda t: t.replace("| AFwdOp 1 | 1 | 1 | 1.00 | 1 | 1 | 1 |", "| AFwdOp 1 | 1 | 1 | 1.00 | 1 | 0.5 | 1 |")),
             "other-ops table needs": lambda: self.edit(
                 "pr-comments.md", lambda t: t.replace("| Op | Workload | main (us) | candidate (us) |", "| Op | Workload | main (us) | new (us) |")),
             "needs positive times": lambda: self.edit(
-                "pr-comments.md", lambda t: t.replace("| 1 | 1 | 1 | 1 | 1 | 1 | 1 |", "| 1 | inf | 1 | 1 | 1 | 1 | 1 |")),
-            "row '1' is slower than main": lambda: self.edit(
-                "pr-comments.md", lambda t: t.replace("| 1 | 1 | 1 | 1 | 1 | 1 | 1 |", "| 1 | 1 | 2 | 1 | 1 | 1 | 1 |")),
-            "the results table lacks the rows behind w2": lambda: (
-                setattr(self, "workloads", ("1", "w2")), p["floor"].append({**p["floor"][0], "workload": "w2"})),
+                "pr-comments.md", lambda t: t.replace("| AFwdOp 1 | 1 | 1 | 1.00 | 1 | 1 | 1 |", "| AFwdOp 1 | inf | 1 | 1.00 | 1 | 1 | 1 |")),
+            "row 'AFwdOp 1' is slower than main": lambda: self.edit(
+                "pr-comments.md", lambda t: t.replace("| AFwdOp 1 | 1 | 1 | 1.00 | 1 | 1 | 1 |", "| AFwdOp 1 | 1 | 2 | 1.00 | 1 | 1 | 1 |")),
+            "the results table lacks the rows behind AFwdOp w2": lambda: (
+                setattr(self, "workloads", ("AFwdOp 1", "AFwdOp w2")),
+                p["floor"].append({**p["floor"][0], "workload": "AFwdOp w2"})),
             "the op has 2 measured rows": lambda: setattr(self, "measured", 2),
-            "floor lacks the rows behind w2": lambda: setattr(self, "workloads", ("1", "w2")),
+            "floor lacks the rows behind AFwdOp w2": lambda: setattr(self, "workloads", ("AFwdOp 1", "AFwdOp w2")),
+            "states DRAM floor 1.00; `topa round measure` gives 2.000": lambda: (
+                (self.round / measure.RECORDS).write_text(
+                    (self.round / measure.RECORDS).read_text().replace('"bytes": 1', '"bytes": 2'))),
+            "row 'AFwdOp 1' has no measured byte count": lambda: (self.round / measure.RECORDS).unlink(),
+            "states DRAM floor 1.009": lambda: self.edit(
+                "pr-comments.md", lambda t: t.replace("| AFwdOp 1 | 1 | 1 | 1.00 | 1 | 1 | 1 |", "| AFwdOp 1 | 1 | 1 | 1.009 | 1 | 1 | 1 |")),
+            "states DRAM floor 1; ": lambda: self.edit(
+                "pr-comments.md", lambda t: t.replace("| AFwdOp 1 | 1 | 1 | 1.00 |", "| AFwdOp 1 | 1 | 1 | 1 |")),
             "candidate_commit must be the commit": lambda: p.update(candidate_commit="c" * 40),
             "positive predicted_us": lambda: p["iterations"][0].pop("predicted_us"),
             "exposes a local path": lambda: self.edit("pr-comments.md", lambda t: t + "/home/x/log\n"),
@@ -715,7 +756,7 @@ class RoundTests(unittest.TestCase):
         self.assertIn("`Closes #2812`", text)
         text = brief("perf", values | _issue_work(issue(2791, "[Perf][GEMM] Close the gap", []), "perf")[1])
         self.assertIn("`Refs #2791`", text)
-        self.assertIn("copy their benchmark names into `workloads`", text)
+        self.assertIn("write them into `workloads` in `provenance.json` as `<Op> <case_id>`", text)
 
     def test_new_op_admission_refuses_work_someone_else_owns(self) -> None:
         """Issues and PRs of others refuse; the user's own draft PR and a title that only contains the op do not."""
@@ -1238,6 +1279,188 @@ class GpuTests(unittest.TestCase):
         self.assertEqual(pick([], {0, 1, 2}).index, 0)
         self.assertIsNotNone(pick([], {0, 1, 2}).warning)
 
+
+
+BENCH_XML = """<testsuites><testsuite>
+<testcase classname="benchmarks.ops.bench_a" name="test_a_bench[llama-float16]"><properties>
+<property name="op" value="AFwdOp"/><property name="tileops_device_busy_ms" value="0.002"/>
+<property name="tileops_timing" value="cupti"/><property name="tileops_l2_flush" value="triton-read-2x-l2-held"/>
+<property name="tileops_bytes" value="4800"/><property name="quack_device_busy_ms" value="0.003"/>
+<property name="quack_timing" value="cupti"/><property name="quack_no_ratio" value="True"/>
+<property name="quack_unverified" value="noncomparable: adds the bias"/>
+<property name="baseline_device_busy_ms" value="0.003"/></properties></testcase>
+<testcase classname="benchmarks.ops.bench_a" name="test_a_bench[qwen-bfloat16]"><properties>
+<property name="unavailable" value="AFwdOp refuses"/><property name="ops" value="AFwdOp"/></properties>
+<skipped message="unavailable"/></testcase>
+<testcase classname="benchmarks.ops.bench_a" name="test_a_bench[broken-float32]"><failure message="x"/></testcase>
+<testcase classname="benchmarks.ops.bench_a" name="test_other_bench[x]"><properties>
+<property name="op" value="OtherFwdOp"/></properties></testcase>
+</testsuite></testsuites>"""
+NODES = {"benchmarks/ops/bench_a.py::test_a_bench": "AFwdOp"}
+
+
+class MeasureTests(unittest.TestCase):
+    def setUp(self) -> None:
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        self.root = Path(tmp.name)
+
+    def test_the_xml_gives_each_row_of_the_listed_nodes_its_status_times_and_comparators(self) -> None:
+        path = self.root / "b.xml"
+        path.write_text(BENCH_XML)
+        rows = measure.read_xml(path, NODES)
+        self.assertEqual([(r["case_id"], r["status"], r["us"]) for r in rows],
+                         [("llama-float16", "measured", 2.0), ("qwen-bfloat16", "unavailable", None),
+                          ("broken-float32", "failed", None)])
+        self.assertEqual(rows[0]["comparators"], {"quack": {"us": 3.0, "timing": "cupti", "l2_flush": None,
+                                                            "no_ratio": True, "unverified": "noncomparable: adds the bias"}})
+        self.assertEqual((rows[0]["bytes"], rows[0]["l2_flush"]), (4800, "triton-read-2x-l2-held"))
+        one = measure.read_xml(path, {"benchmarks/ops/bench_a.py::test_a_bench[qwen-bfloat16]": "AFwdOp"})
+        self.assertEqual([r["case_id"] for r in one], ["qwen-bfloat16"])
+        with self.assertRaisesRegex(SystemExit, "measures OtherFwdOp, but `bench` lists it under AFwdOp"):
+            measure.read_xml(path, {**NODES, "benchmarks/ops/bench_a.py::test_other_bench": "AFwdOp"})
+
+    def test_a_row_s_floor_is_its_first_measured_byte_count_over_the_bandwidth(self) -> None:
+        def record(bandwidth, *rows):
+            return {"hbm_bandwidth": bandwidth,
+                    "rows": [{"op": "AFwdOp", "case_id": c, "status": s, "bytes": b} for c, s, b in rows]}
+        found = [record(2e6, ("a", "unavailable", None), ("b", "measured", 10)),
+                 record(4e6, ("a", "measured", 4), ("b", "measured", 20))]
+        self.assertEqual(measure.floors(found), {"AFwdOp b": 5.0, "AFwdOp a": 1.0})
+        self.assertEqual(measure.names(found), ("AFwdOp a", "AFwdOp b"))
+
+    def test_the_bandwidth_comes_from_the_target_s_hardware_document(self) -> None:
+        folder = self.root / "targets/nvidia/pkg/hardware"
+        folder.mkdir(parents=True)
+        (folder / "h.toml").write_text('[spec]\nid = "nvidia.h"\n[facts.memory.hbm.bandwidth]\nvalue = 4800000000000\n')
+        (folder / "g.toml").write_text('[spec]\nid = "nvidia.g"\n')
+        self.assertEqual(measure.hbm_bandwidth(self.root, "nvidia.h"), 4.8e12)
+        with self.assertRaisesRegex(SystemExit, "set `target`"):
+            measure.hbm_bandwidth(self.root, None)
+        with self.assertRaisesRegex(SystemExit, "states no facts.memory.hbm.bandwidth"):
+            measure.hbm_bandwidth(self.root, "nvidia.g")
+        with self.assertRaisesRegex(SystemExit, "has id nvidia.x"):
+            measure.hbm_bandwidth(self.root, "nvidia.x")
+
+    def test_bench_names_each_op_of_the_round_and_each_node_once(self) -> None:
+        node = "benchmarks/ops/bench_a.py::test_a_bench"
+        self.assertEqual(measure.bench_nodes({"bench": {"AFwdOp": [node]}}, {"AFwdOp"}), {node: "AFwdOp"})
+        self.assertEqual(measure.bench_nodes({"bench": {"AFwdOp": [node]}}, set()), {node: "AFwdOp"})
+        for provenance, message in (({}, "needs `bench`"), ({"bench": {"AFwdOp": ["bench_a.py"]}}, "needs `bench`"),
+                                    ({"bench": {"BFwdOp": [node]}}, "the round works AFwdOp"),
+                                    ({"bench": {"AFwdOp": [node, node]}}, "lists a node twice")):
+            with self.subTest(message), self.assertRaisesRegex(SystemExit, message):
+                measure.bench_nodes(provenance, {"AFwdOp"})
+
+    def test_a_measurement_times_a_snapshot_in_the_container_and_appends_its_record(self) -> None:
+        repo, round_dir = self.root / "repo", self.root / "round"
+        subprocess.run(["git", "init", "-q", "-b", "main", str(repo)], check=True)
+        git(repo, "-c", "user.name=T", "-c", "user.email=t@example.invalid", "commit", "-q", "--allow-empty", "-m", "a")
+        round_dir.mkdir()
+        (round_dir / "provenance.json").write_text(json.dumps({"bench": {"AFwdOp": list(NODES)}}))
+        hardware = self.root / "foundry/targets/nvidia/pkg/hardware"
+        hardware.mkdir(parents=True)
+        (hardware / "h.toml").write_text('[spec]\nid = "nvidia.h"\n[facts.memory.hbm.bandwidth]\nvalue = 4800000000\n')
+        meta = {"worktree": str(repo), "tileops_base": git(repo, "rev-parse", "HEAD"), "alias": "topa-x",
+                "foundry_source": str(self.root / "foundry")}
+        real = measure.sh.run
+
+        def run(args, **kwargs):
+            if args[0] != "ssh":
+                return real(args, **kwargs)
+            xml = re.search(r"--junitxml ([^\s;]+)", args[3])[1]
+            Path(xml).write_text(BENCH_XML)
+            Path(xml).with_suffix(".busy").touch()
+            self.assertIn("topa-bench python -m pytest", args[3])
+            return "NVIDIA H200\n"
+
+        with mock.patch("topa.measure.sh.run", side_effect=run):
+            record = measure.run(meta, round_dir, {"AFwdOp"}, "  first\nkernel ", "nvidia.h", ("AFwdOp llama-float16",),
+                                 base=True)
+        self.assertEqual((record["title"], record["base"], record["gpu"], record["busy_card"], len(record["rows"])),
+                         ("first kernel", True, "NVIDIA H200", True, 3))
+        self.assertTrue((round_dir / measure.SNAPSHOTS / record["commit"][:12]).is_dir())
+        self.assertEqual(measure.records(round_dir), [record])
+        self.assertIn("| `AFwdOp llama-float16` | measured | 2.000 | 1.000 |",
+                      measure.render(record, measure.floors([record])))
+        (round_dir / "provenance.json").write_text(json.dumps({"bench": {"OtherFwdOp": ["benchmarks/ops/bench_b.py::t"]}}))
+        with mock.patch("topa.measure.sh.run", side_effect=run), \
+                self.assertRaisesRegex(SystemExit, "holds no testcase of the `bench` nodes"):
+            measure.run(meta, round_dir, set(), "t", "nvidia.h", ())
+        (round_dir / "provenance.json").write_text(json.dumps({"bench": {"AFwdOp": list(NODES)}}))
+        with mock.patch("topa.measure.sh.run", side_effect=run), \
+                self.assertRaisesRegex(SystemExit, "has no row AFwdOp qwen-float16"):
+            measure.run(meta, round_dir, set(), "t", "nvidia.h", ("AFwdOp qwen-float16",))
+        self.assertEqual(len(measure.records(round_dir)), 1)
+
+    def test_a_floor_is_written_to_three_decimals_or_three_significant_digits(self) -> None:
+        self.assertEqual([measure.floor_text(x) for x in (84.3312, 1.0, 0.0153, 3.2e-7)],
+                         ["84.331", "1.000", "0.0153", "0.000000320"])
+
+
+class RecordTests(unittest.TestCase):
+    """`topa round trace` on a wiki queue round."""
+
+    def setUp(self) -> None:
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        root = Path(tmp.name)
+        for patch in (mock.patch("topa.ledger.LEDGER", root / "ledger.jsonl"), mock.patch("topa.config.HOME", root)):
+            patch.start()
+            self.addCleanup(patch.stop)
+        self.config = defaults()
+        self.dir = self.config.rounds / "afwd-r1"
+        (self.dir / "e").mkdir(parents=True)
+        self.meta = {"round": "afwd-r1", "kind": "perf", "op": "AFwdOp", "wiki": PAGE_URL,
+                     "workloads": ["llama-float16"], "model": "m", "effort": "high", "tileops_base": "b" * 40}
+        (self.dir / "round.json").write_text(json.dumps(self.meta))
+
+    def test_the_trace_orders_phases_analyses_measurements_and_the_session(self) -> None:
+        ledger.append("create", round="afwd-r1", phase="REQ")
+        ledger.append("transition", round="afwd-r1", **{"from": "REQ", "to": "HIR", "reason": "classified"})
+        (self.dir / "e/floor.txt").write_text("# roofline ideal-ns=44035 bound-by=memory\n")
+        (self.dir / "e/check.json").write_text(json.dumps(
+            {"functions": [{"function_records": {"roofline": {"ideal_ns": 7, "bound_by": "compute"}}}]}))
+        (self.dir / "provenance.json").write_text(json.dumps({
+            "reference_check": {"command": "tilefoundry check", "report": "e/check.json"},
+            "floor": [{"workload": "AFwdOp llama-float16", "command": "tilefoundry analyze", "report": "e/floor.txt"}]}))
+        row = {"op": "AFwdOp", "case_id": "llama-float16", "status": "measured", "us": 2.0, "bytes": 4800}
+        for base, ts in ((True, "2000-01-01T00:00:00+00:00"), (False, "2100-01-01T00:00:00+00:00")):
+            with (self.dir / measure.RECORDS).open("a") as handle:
+                handle.write(json.dumps({"ts": ts, "title": "t", "commit": "c" * 40, "base": base, "xml": "x",
+                                         "gpu": "NVIDIA H200", "busy_card": False, "target": "t",
+                                         "hbm_bandwidth": 4.8e9, "rows": [row]}) + "\n")
+        session = self.dir / "session" / "s" / "subagents"
+        session.mkdir(parents=True)
+        message = {"id": "m1", "usage": {"output_tokens": 5}, "content": [
+            {"type": "thinking", "thinking": "why"}, {"type": "tool_use", "name": "Bash", "input": {"command": "ls"}}]}
+        (session / "a.jsonl").write_text("\n".join(json.dumps(r) for r in (
+            {"type": "assistant", "timestamp": "2050-01-01T00:00:00Z", "message": message},
+            {"type": "assistant", "timestamp": "2050-01-01T00:00:01Z", "message": message},
+            {"type": "user", "timestamp": "2050-01-01T00:00:02Z"})) + "\n")
+        view = ledger.rounds()["afwd-r1"]
+        full = trace.export(self.dir, view, self.dir / "session")
+        self.assertEqual((full["source"], full["ops"], full["method"], full["gpu"]),
+                         ({"kind": "wiki", "ref": PAGE_URL}, ["AFwdOp"], "foundry", "NVIDIA H200"))
+        self.assertEqual(full["refs"][0]["dram_floor_us"], 1.0)
+        kinds = [e["t"] for e in full["entries"]]
+        self.assertEqual(kinds[0], "measure")
+        self.assertEqual(kinds[-1], "measure")
+        self.assertEqual(Counter(kinds), Counter({"phase": 2, "foundry": 2, "measure": 2, "think": 2, "tool": 2}))
+        floor = next(e for e in full["entries"] if e["t"] == "foundry" and e["kind"] == "floor")
+        self.assertEqual((floor["op"], floor["case_id"], floor["ideal_ns"], floor["bound_by"], floor["ts_source"]),
+                         ("AFwdOp", "llama-float16", 44035, "memory", "report-file"))
+        self.assertIn({"ideal_ns": 7, "bound_by": "compute"},
+                      [{k: e[k] for k in ("ideal_ns", "bound_by")} for e in full["entries"] if e.get("kind") == "reference"])
+        published = trace.export(self.dir, view, self.dir / "session", published=True)
+        self.assertEqual({e["t"] for e in published["entries"]}, {"phase", "foundry", "measure"})
+        self.assertFalse(any({"command", "reason", "title"} & set(e) for e in published["entries"]))
+        self.assertEqual(published["activity"], {"think_n": 2, "tool_n": 2, "tokens": 5})
+        # Only a measurement of the base gives a reference time; a row the base lacks is unavailable there.
+        (self.dir / measure.RECORDS).write_text((self.dir / measure.RECORDS).read_text().splitlines()[1] + "\n")
+        self.assertEqual(trace.export(self.dir, view, self.dir / "session")["refs"],
+                         [{"op": "AFwdOp", "case_id": "llama-float16", "status": "unavailable", "us": None,
+                           "dram_floor_us": 1.0}])
 
 if __name__ == "__main__":
     unittest.main()

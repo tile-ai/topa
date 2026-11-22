@@ -11,9 +11,12 @@ import math
 import re
 import shlex
 import subprocess
+from collections import Counter
 from dataclasses import dataclass
 from functools import cached_property
 from pathlib import Path
+
+from topa import measure
 
 
 class GateError(ValueError):
@@ -227,7 +230,7 @@ def _not_slower(table: list[list[str]], label: str, unchanged: set[str] | None =
     return faster
 
 
-def _validate_performance(text: str, workloads: tuple[str, ...], measured: int, result: str,
+def _validate_performance(text: str, workloads: tuple[str, ...], measured: int, result: str, floors: dict[str, float],
                           main: bool = True, inventory: tuple[str, ...] = ()) -> set[str]:
     """The environment, the method, one row per workload of the op, and no row slower than main;
     the other-ops rows marked `UNCHANGED`.
@@ -237,7 +240,8 @@ def _validate_performance(text: str, workloads: tuple[str, ...], measured: int, 
     `NOISE`. Other ops that share a changed kernel only must not be slower than main.
     A new op's or an extension's rows answer to comparators alone (*main* false): its table has no
     main column, and `below bar` asks for nothing more. Each case of *inventory* is a row of one of the two tables,
-    and of the results table only when it is one of *workloads*.
+    and of the results table only when it is one of *workloads*. Each row's DRAM floor is the one
+    *floors* holds for it.
     """
     lines = text.splitlines()
     values = {row[0]: row[1].strip("`") for row in _table(lines, "| Environment |")[1:] if len(row) >= 2}
@@ -290,6 +294,15 @@ def _validate_performance(text: str, workloads: tuple[str, ...], measured: int, 
             raise GateError(f"Performance: row {name!r} needs a positive candidate time")
         if least is None:
             raise GateError(f"Performance: row {name!r} needs a positive DRAM floor")
+        if name not in floors:
+            raise GateError(f"Performance: row {name!r} has no measured byte count; run `topa round measure`")
+        # The floor `topa round measure` gives, written to two or more of its decimals.
+        stated = row[floor].strip()
+        places = len(stated.partition(".")[2])
+        if places < 2 or f"{floors[name]:.{places}f}" != stated:
+            raise GateError(f"Performance: row {name!r} states DRAM floor {stated}; "
+                            f"`topa round measure` gives {measure.floor_text(floors[name])}")
+        least = floors[name]
         for i in ratios:
             comparator, stated = (_time(row[j]) if j < len(row) else None for j in (i - 1, i))
             if comparator is None or stated is None:
@@ -401,10 +414,12 @@ def _list(provenance: dict, name: str) -> list:
 class Evidence:
     """The records of a TileFoundry round, which the checks on its state edges and the gate read.
 
-    A perf round on the wiki queue checks its rows behind, *queue_rows*, and its count of measured
-    rows, *queue_measured*; a new-op round checks every case of its admitted *inventory*; any
-    other round takes its rows from `workloads` in `provenance.json`, an extension only cases of its
-    *inventory*. *op*, *inventory* and *published* come from the ledger.
+    A row is named `<Op> <case_id>`, as `topa round measure` names it. A perf round on the wiki
+    queue checks its rows behind, *queue_rows*, and its count of measured rows, *queue_measured*;
+    a new-op round checks every case its benchmark reports; any other round takes its rows from
+    `workloads` in `provenance.json`, an extension only cases its benchmark reports. *inventory*
+    is the admitted `<label> <dtype case>` list, which fixes how many cases each op has. *op*,
+    *inventory* and *published* come from the ledger.
     """
 
     dir: Path
@@ -434,19 +449,39 @@ class Evidence:
         return self.kind == "perf" and self.issue is None
 
     @cached_property
+    def measures(self) -> list[dict]:
+        return measure.records(self.dir)
+
+    def admitted(self) -> Counter:
+        """How many cases the manifest admits for each op of a new op or an extension."""
+        if not self.inventory:
+            raise GateError("the round has no admitted inventory")
+        return Counter(self.op if self.kind == "new-op" else case.split(" ", 1)[0] for case in self.inventory)
+
+    @cached_property
+    def cases(self) -> tuple[str, ...]:
+        """Every case of a new op or an extension, as its benchmark names it, as many per op as admitted."""
+        admitted = self.admitted()
+        found = measure.names(self.measures)
+        if not found:
+            raise GateError("no measurement yet: run `topa round measure` once the benchmark has the cases")
+        reported = Counter(name.split(" ", 1)[0] for name in found)
+        if reported != admitted:
+            raise GateError(f"the benchmark reports {dict(reported)} cases per op; the manifest admits {dict(admitted)}")
+        return found
+
+    @cached_property
     def workloads(self) -> tuple[str, ...]:
         if self.from_queue:
             return self.queue_rows
         if self.kind == "new-op":
-            if not self.inventory:
-                raise GateError("the round has no admitted inventory")
-            return self.inventory
+            return self.cases
         workloads = tuple(_list(self.provenance, "workloads"))
         if not all(_real_text(name) for name in workloads):
-            raise GateError("provenance workloads must name the workloads the issue or the manifest lists")
-        unknown = [name for name in workloads if self.kind == "extend" and name not in self.inventory]
+            raise GateError("provenance workloads must name the rows as `<Op> <case_id>`")
+        unknown = [name for name in workloads if self.kind == "extend" and name not in self.cases]
         if unknown:
-            raise GateError(f"provenance workloads {', '.join(unknown)} are not admitted cases")
+            raise GateError(f"provenance workloads {', '.join(unknown)} are not cases the benchmark reports")
         return workloads
 
     @property
@@ -460,10 +495,16 @@ def check_reference(evidence: Evidence) -> None:
 
 
 def check_floor(evidence: Evidence) -> None:
-    """FLOOR -> OP or IMPL: a floor record per row, and at least two placements with exactly one chosen."""
+    """FLOOR -> OP or IMPL: a floor record per row, and at least two placements with exactly one chosen.
+
+    A new op has no benchmark before OP, so until it is measured its records only cover each admitted case.
+    """
     floor = _list(evidence.provenance, "floor")
-    absent = sorted(set(evidence.workloads) - {record.get("workload") for record in floor if isinstance(record, dict)})
-    if absent:
+    named = {record.get("workload") for record in floor if isinstance(record, dict)}
+    if evidence.kind == "new-op" and not measure.names(evidence.measures):
+        if sum(isinstance(n, str) and n.startswith(f"{evidence.op} ") for n in named) < sum(evidence.admitted().values()):
+            raise GateError(f"floor needs one record per admitted case, each named `{evidence.op} <case_id>`")
+    elif absent := sorted(set(evidence.workloads) - named):
         raise GateError(f"floor lacks the rows behind {', '.join(absent)}")
     for index, record in enumerate(floor):
         _record(evidence.dir, record, f"floor[{index}]")
@@ -547,7 +588,8 @@ def check_implementation(evidence: Evidence) -> None:
     if "Performance" not in performance:
         raise GateError(f"{COMMENTS_FILE} lacks the Performance section")
     if _validate_performance(performance["Performance"], evidence.workloads, evidence.measured, result,
-                             main=evidence.kind == "perf", inventory=evidence.inventory):
+                             measure.floors(evidence.measures), main=evidence.kind == "perf",
+                             inventory=evidence.cases if evidence.kind in ("new-op", "extend") else ()):
         _record(evidence.dir, provenance.get("program_diff"), "program_diff", tilefoundry=False)
     if evidence.kind != "perf" and result == "below bar":
         check_stop_records(evidence)

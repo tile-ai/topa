@@ -30,13 +30,15 @@ the cases main refuses with `OpNotAvailableError`, and each case the issue names
 
 {{FOUNDRY_COMMANDS}}
 
+{{FOUNDRY_MEASURE}}
+
 ### Requirement and comparators
 
 1. Read the issue, the manifest entries (signature, workloads, `ref_api`, roofline), the Op and
    kernel code of each op, and the TileOPs `docs/design/` pages on them.
 2. Run each op's benchmark on the base, and list the cases it reports unavailable.
-3. Write the rows to serve into `workloads` in `provenance.json`, each named as the
-   requirement lists its case.
+3. Write `bench`, run `topa round measure "base" --base`, and write the rows to serve into
+   `workloads` in `provenance.json`, each named as the measurement names it.
 4. List in `report.md` the kernels the change touches and every op that calls them.
 5. List the comparators: the reference implementation the manifest or the issue names, each
    library the issue names, and torch and `torch.compile` of the reference.
@@ -88,5 +90,5 @@ Why: `[foundry]` makes TileOPs add the `foundry` label.
 - Name each `floor` record's `workload`, and each row of the results table, as `workloads`
   names it; give the results table the rows to serve alone.
 - Give the other-ops table every other case of the requirement, the op in the first column
-  and `<label> <dtype case>` in the second. `topa round transition` and `topa gate` require
-  each case in one of the two tables.
+  and the case id in the second. `topa round transition` and `topa gate` require each case
+  the measurement reports in one of the two tables.

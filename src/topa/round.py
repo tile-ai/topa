@@ -21,7 +21,7 @@ from importlib.resources import files
 from pathlib import Path
 from typing import Any, Iterable
 
-from topa import container, foundry, gate, history, ledger, review, sh, states, wiki
+from topa import container, foundry, gate, history, ledger, measure, review, sh, states, wiki
 from topa.config import Config
 from topa.gate import FINDING_SCOPES, FINDINGS_REPO, FOUNDRY_KINDS
 
@@ -273,8 +273,8 @@ def _wiki_work(op: wiki.Op, page: wiki.Page) -> tuple[dict[str, Any], dict[str, 
         f"`device_busy_ms` in microseconds; ratio = comparator / TileOPs):\n\n{op.table()}\n\n"
         f"The op is `{op.name}`. Take these rows and the op's manifest entry, Op, workloads, reference, "
         "tests and benchmark as the whole requirement.")
-    plan = {"kind": "perf", "op": op.name, "benchmark": op.benchmark, "wiki": page.url,
-            "nightly_commit": page.commit, "workloads": [row.workload for row in op.rows], "measured": op.measured}
+    plan = {"kind": "perf", "op": op.name, "benchmark": op.benchmark, "wiki": page.url, "nightly_commit": page.commit,
+            "workloads": [measure.name(op.name, row.workload) for row in op.rows], "measured": op.measured}
     return plan, {"TITLE": f"bring {op.name} to its fastest comparator", "REQUIREMENT": requirement,
                   "LINK": "The PR links no issue."}
 
@@ -429,7 +429,8 @@ def _issue_work(issue: dict[str, Any], kind: str) -> tuple[dict[str, Any], dict[
     requirement = f"{_quoted(issue)}\n\nTake this issue, with the code, tests and docs it names, as the whole requirement."
     if kind == "perf":
         requirement += (" The op is the one the issue names, and its rows are the workloads the issue lists; "
-                        "copy their benchmark names into `workloads` in `provenance.json`.")
+                        "write them into `workloads` in `provenance.json` as `<Op> <case_id>`, the case id being "
+                        "the parametrized part of the benchmark test name.")
     # A perf PR only refers to its issue: the nightly confirms the result, then the issue closes.
     link = (f"End Summary, above the `Op:` lines, with the line `Refs #{number}`." if kind == "perf"
             else f"End Summary with the line `Closes #{number}`.")
@@ -445,7 +446,8 @@ def _extend_work(issue: dict[str, Any],
     requirement = (f"{_quoted(issue)}\n\nThe ops it names, with their manifest entries at the TileOPs base: "
                    f"{', '.join(f'`{op}` in `{path}`' for op, (path, _) in entries.items())}. Their cases, "
                    f"each op, workload `label` and dtype case:\n\n{listed}\n\n"
-                   "Take the issue, these entries and these cases as the whole requirement.")
+                   "Take the issue, these entries and these cases as the whole requirement. Records name each "
+                   "case `<Op> <case_id>`, as `topa round measure` reports it.")
     plan = {"kind": "extend", "issue": issue["number"], "issue_url": issue["url"], "ops": list(entries),
             "inventory": [f"{op} {case}" for op in entries for case in cases[op]]}
     return plan, {"TITLE": issue["title"], "REQUIREMENT": requirement,
@@ -468,7 +470,8 @@ def _new_op_work(op: str, path: str, family: str, cases: list[str],
                    f"each workload `label` by dtype case:\n\n{listed}\n\n")
     if issue:
         requirement += f"{_quoted(issue)}\n\n"
-    requirement += f"Take the entry{', the issue' if issue else ''} and these cases as the whole requirement."
+    requirement += (f"Take the entry{', the issue' if issue else ''} and these cases as the whole requirement. "
+                    f"Records name each case `{op} <case_id>`, as `topa round measure` reports it.")
     plan = {"kind": "new-op", "op": op, "family": family, "inventory": cases}
     link = "The PR links no issue."
     if issue:
@@ -634,8 +637,8 @@ def start(config: Config, name: str | None = None, *, issue: int | None = None, 
         prior = None
         if admission.queue is not None:
             sh.note("collecting earlier attempts")
-            prior = history.collect(config, admission.queue.name, admission.queue.benchmark, work["workloads"],
-                                    exclude=slug)
+            prior = history.collect(config, admission.queue.name, admission.queue.benchmark,
+                                    [row.workload for row in admission.queue.rows], exclude=slug)
             values["PRIOR_ATTEMPTS"] = history.render(prior)
         elif work["kind"] == "perf":
             values["PRIOR_ATTEMPTS"] = ("This round works an issue, so topa collected no earlier attempts. "
@@ -808,6 +811,30 @@ def transition(config: Config, target: str, reason: str, slug: str | None = None
         commit = sh.run(["git", "-C", meta["worktree"], "rev-parse", "HEAD"])
         return ledger.append("transition", round=current.slug,
                              **{"from": source, "to": target, "reason": reason, "commit": commit})
+
+
+# --- measure ------------------------------------------------------------------------
+
+
+def measure_round(config: Config, title: str, slug: str | None = None, *, base: bool = False) -> str:
+    """Measure the round's base or HEAD, append the record, and render it with the DRAM floors."""
+    current = find(config, slug)
+    meta = current.meta
+    if meta.get("kind") not in FOUNDRY_KINDS:
+        raise SystemExit(f"a {meta.get('kind')} round has no measurements")
+    if not " ".join(title.split()):
+        raise SystemExit("give the measurement a title")
+    # A queue round's rows come with it; any other round writes them into provenance.json.
+    provenance = current.dir / "provenance.json"
+    workloads = tuple(meta.get("workloads") or (json.loads(provenance.read_text(encoding="utf-8")).get("workloads")
+                                                 if provenance.is_file() else None) or ())
+    record = measure.run(meta, current.dir, _ops(meta), title, config.target, workloads, base=base)
+    text = measure.render(record, measure.floors(measure.records(current.dir)))
+    measured = {measure.name(row["op"], row["case_id"]) for row in record["rows"] if row["status"] == "measured"}
+    missing = [name for name in workloads if name not in measured]
+    if missing:
+        text += f"\n\nThe round's rows {', '.join(missing)} were not measured."
+    return text
 
 
 # --- status -------------------------------------------------------------------------

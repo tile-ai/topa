@@ -42,6 +42,9 @@
   claim.lock                   held while a round claims its op
   locks/gpu-<N>.lock           held by `topa-bench` while it times on card N
   rounds/<slug>/               the round's output; topa never deletes it
+    measures.jsonl             one line per `topa round measure`: its commit, title and rows
+    evidence/measure/          the benchmark XML of each measurement
+    work/measure/<commit>/     the snapshot a measurement timed
   reviews/<owner>/<repo>/<PR>/  a PR reviewed once: its inputs, worktree/ at the PR head,
                                posted.json (the last findings posted, with their head and base)
                                and pending.json while a review is being posted

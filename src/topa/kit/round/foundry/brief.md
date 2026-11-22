@@ -54,6 +54,16 @@ The round moves along `{{STATE_PATH}}`. STOPPED ends it without a PR.
   [Floor and placement](#floor-and-placement).
 - Cite `tilefoundry --version` and the target with every analysis number.
 
+<!-- MEASURE -->
+- Name every row `<Op> <case_id>`: the op, then the parametrized part of its benchmark test
+  name, such as `SoftmaxFwdOp attn-weights-4k-float16`. Records, tables and `workloads` use
+  this name.
+- Write `bench` in `provenance.json`: for each op, the pytest nodes of its benchmark, as
+  `{"<Op>": ["benchmarks/ops/<file>.py::<test>"]}`.
+- Run `{{TOPA}} round measure "<title>" --round {{SLUG}}` to time those nodes on HEAD;
+  `--base` times the TileOPs base. It records every row and prints each row's DRAM floor.
+- Only these measurements enter the round's record; time anything else as you need.
+
 <!-- CLASSES -->
 | Class | Timed | Counts toward the fastest comparator |
 | --- | --- | --- |
@@ -75,9 +85,9 @@ Exit: the HIR matches the reference on every output of every workload.
 ### Floor and placement
 
 1. Establish each workload's floor and bottleneck with TileFoundry's analysis.
-2. Record each workload's DRAM floor: the bytes it must move over the target's DRAM
-   bandwidth.
-3. Check the flops and traffic by hand: each input read once, each output written once.
+2. Take each workload's DRAM floor from `topa round measure`: the benchmark's byte count
+   over the target's HBM bandwidth.
+3. Check the analysis's flops and traffic against that byte count.
 4. Where the hand count and the analysis disagree, fix the HIR or the count, or record a
    TileFoundry finding.
 5. List placements, including the incumbent's when the op has one and the fastest
@@ -101,7 +111,8 @@ Run each round in this order, and add it to `iterations` in `provenance.json`:
 6. Check with TileFoundry that the runtime twin, which calls the production kernel, matches
    the HIR.
 7. Run the tests of the op and of every op that shares a changed kernel.
-8. Measure (rules below), and record measured / floor, measured / predicted and
+8. Run `{{TOPA}} round measure "<the change>" --round {{SLUG}}` on the candidate commit,
+   then measure by the rules below, and record measured / floor, measured / predicted and
    comparator / measured.
 9. Record the cause of a prediction error, or that it is unresolved, in TileFoundry
    Findings.
@@ -148,8 +159,9 @@ Run the affected tests on the GPU, `scripts/validate_manifest.py`, the benchmark
 <!-- COMMENTS -->
 - Test Plan: the `scripts/test_node_delta.py` output and the path each new case guards.
 - TileFoundry Description: `work/final_hir.py` verbatim.
-- Performance: one row per measured workload of the op, and in the other-ops table the other
-  rows checked against main. Delete that table when there are none.
+- Performance: one row per measured workload of the op, named `<Op> <case_id>`, with the DRAM
+  floor `topa round measure` printed for it; and in the other-ops table the other rows checked
+  against main. Delete that table when there are none.
 - Result And Limitations: opens with the result.
 - TileFoundry Findings.
 - Keep every `## ` heading and every column.
@@ -187,7 +199,8 @@ Run the affected tests on the GPU, `scripts/validate_manifest.py`, the benchmark
   "final_hir": "work/final_hir.py", "runtime_twin": "work/runtime_twin.py",
   "production_kernel": "src/tileops/<path>.py:<Symbol>",
   "reference_check": {"command": "<tilefoundry command>", "report": "<r>"},
-  "floor": [{"workload": "<name>", "command": "<tilefoundry command>", "report": "<r>"}],
+  "bench": {"<Op>": ["benchmarks/ops/<file>.py::<test>"]},
+  "floor": [{"workload": "<Op> <case_id>", "command": "<tilefoundry command>", "report": "<r>"}],
   "placements": [{"placement": "<tiling>", "chosen": true, "command": "<tilefoundry command>", "report": "<r>"}],
   "schedule": {"command": "<tilefoundry command>", "report": "<the TIR>"},
   "twin_check": {"command": "<tilefoundry command>", "report": "<r>"},

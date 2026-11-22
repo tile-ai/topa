@@ -34,6 +34,8 @@ DEFAULTS: dict[str, Any] = {
     "effort": None,
     "reviewer": None,
     "tilefoundry_commit": None,
+    # The TileFoundry device whose HBM bandwidth sets a round's DRAM floor, such as `nvidia.h200_sxm`.
+    "target": None,
     "max_rounds": 2,
 }
 PATHS = {"tileops_repo", "tilefoundry_repo", "worktree_root"}
@@ -58,6 +60,7 @@ class Config:
     effort: str | None
     reviewer: str | None
     tilefoundry_commit: str | None
+    target: str | None
     max_rounds: int
 
     @property
