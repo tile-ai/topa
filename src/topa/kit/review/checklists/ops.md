@@ -6,7 +6,11 @@ Apply when the diff touches `src/tileops/_ops/`, `src/tileops/_kernels/`, `src/t
 
 | Criterion | Pass | Fail |
 | --- | --- | --- |
-| No slower row | When the dispatch or kernel of an existing row changes: the PR gives base and head medians on one GPU, and no head median exceeds the slowest base run | a row is missing or slower |
+| No slower row | When the dispatch or kernel of an existing row changes: the PR gives base and head medians on one GPU, and no head median exceeds the slowest base run; a bug fix may slow a row when its body names each slower row or call, its slowdown and the bug it closes | a row is missing, or a row is slower and the body does not name it, its slowdown and the bug |
+| Benefit | When the title starts with `[Perf]` and no head median beats the fastest base run by more than one timer step: the body reports which calls get faster and by how much, each measured on a manifest workload row, and the gain justifies the added lines, dispatch paths and programs | no call has a measured gain, the gain is too small for the added code, or the gain shows only on shapes no workload row has; ask for a row that shows it |
+
+- Under `Benefit`, state in the summary the faster calls, their gain, the added code, and whether the gain justifies the code.
+- Count a call outside the manifest workload rows toward the gain only when the body reports its measurement.
 
 ## Selection and build
 
