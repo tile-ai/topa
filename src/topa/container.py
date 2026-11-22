@@ -11,6 +11,7 @@ from __future__ import annotations
 import hashlib
 import os
 import shutil
+import sys
 import time
 from dataclasses import dataclass
 from importlib.resources import files
@@ -178,6 +179,8 @@ def start(
             # The brief names the review checklists and the knowledge file by their host paths.
             *[arg for path in _spellings(package) for arg in ("--volume", f"{package}:{path}:ro")],
             *bench,
+            # A line the hook sends here because it mixes topa with container commands reaches this, not "not found".
+            "--volume", f"{package / 'kit' / 'container' / 'topa-host-only'}:{Path(sys.executable).parent / 'topa'}:ro",
             "--volume", f"{foundry.stage / 'wheels'}:/opt/topa/wheels:ro",
             "--volume", f"{foundry.stage / 'build-tools'}:/opt/topa/build-tools:ro",
             "--volume", f"{tilelang_cache}:/ci-cache/tilelang",

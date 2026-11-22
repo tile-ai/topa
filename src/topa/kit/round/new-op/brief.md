@@ -61,7 +61,7 @@ Exit: every pair is classified, and every case has a comparable comparator.
    only when the manifest needs them.
 5. Run the new tests on the base, where the op does not exist, and record the failing run
    as `base_tests`, `{"command": "<pytest>", "report": "<r>"}`, in `provenance.json`.
-6. Write `bench` for the new benchmark, and run `topa round measure "first kernel"`.
+6. Write `bench` for the new benchmark, and run `{{TOPA}} round measure "first kernel" --round {{SLUG}}`.
 
 Exit: the Op, its tests and its benchmark exist, and the failing run on the base is
 recorded.

@@ -37,7 +37,7 @@ the cases main refuses with `OpNotAvailableError`, and each case the issue names
 1. Read the issue, the manifest entries (signature, workloads, `ref_api`, roofline), the Op and
    kernel code of each op, and the TileOPs `docs/design/` pages on them.
 2. Run each op's benchmark on the base, and list the cases it reports unavailable.
-3. Write `bench`, run `topa round measure "base" --base`, and write the rows to serve into
+3. Write `bench`, run `{{TOPA}} round measure "base" --base --round {{SLUG}}`, and write the rows to serve into
    `workloads` in `provenance.json`, each named as the measurement names it.
 4. List in `report.md` the kernels the change touches and every op that calls them.
 5. List the comparators: the reference implementation the manifest or the issue names, each

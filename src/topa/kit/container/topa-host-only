@@ -1,0 +1,4 @@
+#!/usr/bin/env bash
+# Mounted in a round container over the host's topa: topa runs on the host only.
+echo "topa runs on the host, not in the round container: give it a command of its own, with only host commands such as cd, cat or tail beside it" >&2
+exit 127
