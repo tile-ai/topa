@@ -166,8 +166,8 @@ def run(meta: dict[str, Any], round_dir: Path, ops: set[str], title: str, target
     command = (f"cd {shlex.quote(str(snapshot))} && TOPA_BENCH_BUSY={shlex.quote(str(busy))} "
                f"PYTHONPATH={shlex.quote(f'{src}:{snapshot}')} topa-bench python -m pytest -p no:cacheprovider -q "
                f"{' '.join(shlex.quote(n) for n in nodes)} --junitxml {shlex.quote(str(xml))}; "
-               "nvidia-smi --query-gpu=name --format=csv,noheader -i \"$TILEOPS_PHYSICAL_GPU\"")
-    # The last line is the card's name; the lines before it are pytest's.
+               "nvidia-smi --query-gpu=name --format=csv,noheader | head -1")
+    # The last line is the card's name, the container's only one; the lines before it are pytest's.
     output = sh.run(["ssh", "-T", meta["alias"], command], check=False).splitlines()
     if not xml.is_file():
         raise SystemExit(f"the benchmark wrote no {xml}:\n" + "\n".join(output[-20:]))
