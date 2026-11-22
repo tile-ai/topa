@@ -20,7 +20,7 @@ DEFAULTS: dict[str, Any] = {
     "tileops_repo": "~/TileOPs",
     "tilefoundry_repo": "~/TileFoundry",
     "worktree_root": "~/TileOPs-worktrees",
-    "runner_image": "ghcr.io/tile-ai/tileops-dev:cuda13.2-torch2.13-tilelang0.1.12",
+    "runner_image": "ghcr.io/tile-ai/tileops-dev:cuda13.2-torch2.14-tilelang0.1.15",
     "agent_image": "topa:agent",
     "gpu": None,
     "gpu_exclude": [],
