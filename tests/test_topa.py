@@ -1315,6 +1315,8 @@ class MeasureTests(unittest.TestCase):
         self.assertEqual(rows[0]["comparators"], {"quack": {"us": 3.0, "timing": "cupti", "l2_flush": None,
                                                             "no_ratio": True, "unverified": "noncomparable: adds the bias"}})
         self.assertEqual((rows[0]["bytes"], rows[0]["l2_flush"]), (4800, "triton-read-2x-l2-held"))
+        # Milliseconds to microseconds keeps the XML's digits: 0.0117435 * 1000 is 11.743500000000001 in floats.
+        self.assertEqual(measure._us("0.0117435"), 11.7435)
         one = measure.read_xml(path, {"benchmarks/ops/bench_a.py::test_a_bench[qwen-bfloat16]": "AFwdOp"})
         self.assertEqual([r["case_id"] for r in one], ["qwen-bfloat16"])
         with self.assertRaisesRegex(SystemExit, "measures OtherFwdOp, but `bench` lists it under AFwdOp"):

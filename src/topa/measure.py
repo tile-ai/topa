@@ -12,6 +12,7 @@ was taken. A row's DRAM floor is its first measured `tileops_bytes` over the ban
 from __future__ import annotations
 
 import datetime
+import decimal
 import json
 import math
 import shlex
@@ -31,6 +32,11 @@ NOT_COMPARATORS = ("tileops", "baseline")
 
 def name(op: str, case_id: str) -> str:
     return f"{op} {case_id}"
+
+
+def _us(milliseconds: str) -> float:
+    """The XML's milliseconds in microseconds, keeping its decimal digits exactly."""
+    return float(decimal.Decimal(milliseconds).scaleb(3))
 
 
 def _number(value: str | None) -> float | None:
@@ -71,13 +77,13 @@ def read_xml(path: Path, nodes: dict[str, str]) -> list[dict[str, Any]]:
         for key, value in props.items():
             tag = key.removesuffix("_device_busy_ms")
             if key.endswith("_device_busy_ms") and tag not in NOT_COMPARATORS and _number(value):
-                comparators[tag] = {"us": float(value) * 1000, "timing": props.get(f"{tag}_timing"),
+                comparators[tag] = {"us": _us(value), "timing": props.get(f"{tag}_timing"),
                                     "l2_flush": props.get(f"{tag}_l2_flush"),
                                     "no_ratio": props.get(f"{tag}_no_ratio") == "True",
                                     "unverified": props.get(f"{tag}_unverified") or None}
         bytes_ = _number(props.get("tileops_bytes"))
         rows.append({"op": op, "case_id": test.partition("[")[2].removesuffix("]") or test, "status": status,
-                     "us": busy * 1000 if status == "measured" else None,
+                     "us": _us(props["tileops_device_busy_ms"]) if status == "measured" else None,
                      "timing": props.get("tileops_timing"), "l2_flush": props.get("tileops_l2_flush"),
                      "bytes": int(bytes_) if bytes_ else None, "comparators": comparators})
     return rows
