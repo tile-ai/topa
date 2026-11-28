@@ -1,0 +1,225 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$defs": {
+    "Comparator": {
+      "additionalProperties": false,
+      "description": "Another implementation's time on a case, taken in the same benchmark run.",
+      "properties": {
+        "us": {
+          "title": "Us",
+          "type": "number"
+        },
+        "timing": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Timing"
+        },
+        "l2_flush": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "L2 Flush"
+        },
+        "no_ratio": {
+          "title": "No Ratio",
+          "type": "boolean"
+        },
+        "unverified": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Unverified"
+        }
+      },
+      "required": [
+        "us",
+        "timing",
+        "l2_flush",
+        "no_ratio",
+        "unverified"
+      ],
+      "title": "Comparator",
+      "type": "object"
+    },
+    "OpCase": {
+      "additionalProperties": false,
+      "description": "A case of a measurement record, which can hold the cases of several ops.",
+      "properties": {
+        "case_id": {
+          "title": "Case Id",
+          "type": "string"
+        },
+        "status": {
+          "enum": [
+            "measured",
+            "failed",
+            "unavailable",
+            "skipped"
+          ],
+          "title": "Status",
+          "type": "string"
+        },
+        "us": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Us"
+        },
+        "timing": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Timing"
+        },
+        "l2_flush": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "L2 Flush"
+        },
+        "bytes": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Bytes"
+        },
+        "comparators": {
+          "additionalProperties": {
+            "$ref": "#/$defs/Comparator"
+          },
+          "title": "Comparators",
+          "type": "object"
+        },
+        "op": {
+          "title": "Op",
+          "type": "string"
+        }
+      },
+      "required": [
+        "case_id",
+        "status",
+        "us",
+        "timing",
+        "l2_flush",
+        "bytes",
+        "comparators",
+        "op"
+      ],
+      "title": "OpCase",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "description": "One line of `measures.jsonl`: what one `topa round measure` timed.",
+  "properties": {
+    "ts": {
+      "format": "date-time",
+      "title": "Ts",
+      "type": "string"
+    },
+    "title": {
+      "minLength": 1,
+      "title": "Title",
+      "type": "string"
+    },
+    "commit": {
+      "title": "Commit",
+      "type": "string"
+    },
+    "base": {
+      "title": "Base",
+      "type": "boolean"
+    },
+    "xml": {
+      "title": "Xml",
+      "type": "string"
+    },
+    "gpu": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "title": "Gpu"
+    },
+    "busy_card": {
+      "title": "Busy Card",
+      "type": "boolean"
+    },
+    "target": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "title": "Target"
+    },
+    "hbm_bandwidth": {
+      "title": "Hbm Bandwidth",
+      "type": "number"
+    },
+    "cases": {
+      "items": {
+        "$ref": "#/$defs/OpCase"
+      },
+      "title": "Cases",
+      "type": "array"
+    }
+  },
+  "required": [
+    "ts",
+    "title",
+    "commit",
+    "base",
+    "xml",
+    "gpu",
+    "busy_card",
+    "target",
+    "hbm_bandwidth",
+    "cases"
+  ],
+  "title": "Measurement",
+  "type": "object"
+}

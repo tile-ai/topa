@@ -1,9 +1,11 @@
-"""`topa round trace`: a round's records as one time-ordered trace, read-only.
+"""`topa round trace` and `topa trace publish`: a round's records as one time-ordered trace, read-only.
 
-The full trace holds every entry: the round's phases from the ledger, the TileFoundry
-analyses `provenance.json` records, the measurements of `topa round measure`, and the
-agent's thinking and tool calls from the archived session. The published trace keeps the
-phases, analyses and measurements, and counts what it leaves out.
+The full trace, a `schema.Trace`, holds every entry: the round's phases from the ledger, the
+TileFoundry analyses `provenance.json` records, the measurements of `topa round measure`, and the
+agent's thinking and tool calls from the archived session. It holds one op.
+
+The published trace, a `schema.PublishedTrace`, is made from a full trace: it keeps the phases,
+analyses and measurements, and counts what it leaves out.
 """
 
 from __future__ import annotations
@@ -14,10 +16,9 @@ import re
 from pathlib import Path
 from typing import Any
 
-from topa import ledger, measure
+from topa import ledger, measure, schema
 from topa.gate import FOUNDRY_KINDS
 
-SCHEMA = 1
 ROOFLINE = re.compile(r"roofline ideal-ns=(\d+) bound-by=(\w+)")
 PUBLISHED = ("phase", "foundry", "measure")
 
@@ -51,9 +52,9 @@ def _foundry(round_dir: Path, provenance: dict[str, Any]) -> list[dict[str, Any]
         report = round_dir / str((record or {}).get("report") or "")
         if not isinstance(record, dict) or not report.is_file():
             continue
-        op, _, case_id = str(record.get("workload") or "").partition(" ")
+        case_id = str(record.get("workload") or "").partition(" ")[2]
         found.append({"ts": _local(report.stat().st_mtime), "t": "foundry", "kind": kind,
-                      "op": op or None, "case_id": case_id or None, "command": record.get("command"),
+                      "case_id": case_id or None, "command": record.get("command"),
                       **_roofline(report), "ts_source": "report-file"})
     return found
 
@@ -84,11 +85,15 @@ def _session(transcripts: Path) -> tuple[list[dict[str, Any]], int | None]:
     return entries, tokens if seen else None
 
 
-def export(round_dir: Path, view: dict[str, Any], transcripts: Path, *, published: bool = False) -> dict[str, Any]:
-    """The round's trace; *view* is its ledger view, *transcripts* the folder of its session transcripts."""
+def export(round_dir: Path, view: dict[str, Any], transcripts: Path) -> dict[str, Any]:
+    """The round's full trace; *view* is its ledger view, *transcripts* the folder of its session transcripts."""
     meta = {**view, **_json(round_dir / "round.json")}
     provenance = _json(round_dir / "provenance.json")
     slug = meta["round"]
+    # An issue's perf round learns its op from the issue, so `bench` names it.
+    ops = sorted({*meta.get("ops", ()), *filter(None, [meta.get("op")])} or set((provenance.get("bench") or {}).keys()))
+    if len(ops) != 1:
+        raise SystemExit(f"a trace holds one op; {slug} works {', '.join(ops) or 'none'}")
     entries = []
     for record in ledger.events():
         if record.get("round") != slug:
@@ -99,44 +104,43 @@ def export(round_dir: Path, view: dict[str, Any], transcripts: Path, *, publishe
             entries.append({"ts": record["ts"], "t": "phase", "to": record["to"], "reason": record.get("reason")})
     entries += _foundry(round_dir, provenance)
     found = measure.records(round_dir)
-    entries += [{"ts": r["ts"], "t": "measure", "title": r["title"], "commit": r["commit"],
-                 "busy_card": r["busy_card"], "rows": r["rows"]} for r in found]
+    entries += [{"ts": r["ts"], "t": "measure", "title": r["title"], "commit": r["commit"], "base": r["base"],
+                 "busy_card": r["busy_card"], "hbm_bandwidth": r["hbm_bandwidth"],
+                 "cases": [{k: v for k, v in case.items() if k != "op"} for case in r["cases"]]} for r in found]
     session, tokens = _session(transcripts)
     entries += session
     entries.sort(key=lambda entry: _instant(entry["ts"]))
     start = next((r for r in found if r["base"]), None)
-    floors = measure.floors(found)
-    refs = [{**row, "dram_floor_us": floors.get(measure.name(row["op"], row["case_id"]))}
-            for row in (start or {}).get("rows", [])]
-    # A row the base cannot run, such as a new op's, is unavailable there.
-    listed = {measure.name(row["op"], row["case_id"]) for row in refs}
-    for record in found:
-        for row in record["rows"]:
-            key = measure.name(row["op"], row["case_id"])
-            if key not in listed:
-                listed.add(key)
-                refs.append({"op": row["op"], "case_id": row["case_id"], "status": "unavailable", "us": None,
-                             "dram_floor_us": floors.get(key)})
     issue, wiki = meta.get("issue"), meta.get("wiki")
-    trace = {
-        "schema": SCHEMA, "round": slug,
-        "source": {"kind": "issue", "ref": issue} if issue else {"kind": "wiki", "ref": wiki} if wiki
+    return schema.checked(schema.Trace, {
+        "schema": schema.TRACE, "round": slug, "item": issue or ops[0], "op": ops[0],
+        "source": {"kind": "issue", "ref": meta.get("issue_url")} if issue else {"kind": "wiki", "ref": wiki} if wiki
         else {"kind": "none", "ref": None},
-        "ops": sorted({*meta.get("ops", ()), *filter(None, [meta.get("op")])}
-                      or set((provenance.get("bench") or {}).keys())),
         "method": "foundry" if meta.get("kind") in FOUNDRY_KINDS else meta.get("kind"),
         "model": meta.get("model"), "effort": meta.get("effort"),
         "gpu": next((r["gpu"] for r in reversed(found) if r.get("gpu")), None),
         "base": (start or {}).get("commit") or meta.get("tileops_base"), "pr": view.get("pr"),
-        "refs": refs, "entries": entries,
-    }
-    if published:
-        # Commands, reasons and titles are the agent's own text, which can hold local paths.
-        trace["entries"] = [{k: v for k, v in entry.items() if k not in ("command", "reason", "title")}
-                            for entry in entries if entry["t"] in PUBLISHED]
-        trace["activity"] = {"think_n": sum(e["t"] == "think" for e in session),
-                             "tool_n": sum(e["t"] == "tool" for e in session), "tokens": tokens}
-    return trace
+        "tokens": tokens, "entries": entries,
+    })
+
+
+def publish(full: dict[str, Any]) -> dict[str, Any]:
+    """The published trace of the full trace *full*.
+
+    It keeps the phases, analyses and measurements, and counts the session it leaves out. A phase's
+    reason and an analysis's command are the agent's own text, which can hold local paths, so they
+    go; a measurement's title stays, since it says what the measured commit changed.
+    """
+    trace = schema.checked(schema.Trace, full)
+    entries = trace.pop("entries")
+    tokens = trace.pop("tokens")
+    return schema.checked(schema.PublishedTrace, {
+        **trace,
+        "activity": {"think_n": sum(e["t"] == "think" for e in entries),
+                     "tool_n": sum(e["t"] == "tool" for e in entries), "tokens": tokens},
+        "entries": [{k: v for k, v in e.items() if k not in ("reason", "command")}
+                    for e in entries if e["t"] in PUBLISHED],
+    })
 
 
 def _json(path: Path) -> dict[str, Any]:

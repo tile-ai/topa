@@ -830,7 +830,7 @@ def measure_round(config: Config, title: str, slug: str | None = None, *, base: 
                                                  if provenance.is_file() else None) or ())
     record = measure.run(meta, current.dir, _ops(meta), title, config.target, workloads, base=base)
     text = measure.render(record, measure.floors(measure.records(current.dir)))
-    measured = {measure.name(row["op"], row["case_id"]) for row in record["rows"] if row["status"] == "measured"}
+    measured = {measure.name(case["op"], case["case_id"]) for case in record["cases"] if case["status"] == "measured"}
     missing = [name for name in workloads if name not in measured]
     if missing:
         text += f"\n\nThe round's rows {', '.join(missing)} were not measured."
