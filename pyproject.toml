@@ -9,7 +9,7 @@ description = "TileFoundry and TileOps: a path to autonomous kernel engineering.
 readme = "README.md"
 license = "MIT"
 requires-python = ">=3.11"
-dependencies = []
+dependencies = ["pydantic>=2.7"]
 
 [project.scripts]
 topa = "topa.cli:main"
@@ -18,7 +18,7 @@ topa = "topa.cli:main"
 where = ["src"]
 
 [tool.setuptools.package-data]
-topa = ["kit/**/*", "kit/**/.gitkeep", "knowledge/*"]
+topa = ["kit/**/*", "kit/**/.gitkeep", "knowledge/*", "schemas/*.json"]
 
 [tool.ruff]
 line-length = 120

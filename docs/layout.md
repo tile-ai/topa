@@ -26,6 +26,9 @@
 - `src/topa/kit/stage.py` runs in the agent image, once per image and dependency list. It stages, for offline
   install, the wheels TileFoundry needs beyond the runner and the build backends of
   TileFoundry and TileOPs.
+- `src/topa/schema.py` defines the formats of a measurement record and of a trace; topa writes both only
+  through it. `src/topa/schemas/` holds the same formats as JSON Schema for readers outside topa;
+  `python -m topa.schema` rewrites the files after a change.
 - `src/topa/gate.py` is the evidence gate that runs before a PR. Its checks also guard the
   edges of the state graph in `src/topa/states.py`.
 - `src/topa/wiki.py` reads the Perf Tracker page that `scripts/perf_tracker.py` in
@@ -42,7 +45,7 @@
   claim.lock                   held while a round claims its op
   locks/gpu-<N>.lock           held by `topa-bench` while it times on card N
   rounds/<slug>/               the round's output; topa never deletes it
-    measures.jsonl             one line per `topa round measure`: its commit, title and rows
+    measures.jsonl             one line per `topa round measure`: its commit, title and cases
     evidence/measure/          the benchmark XML of each measurement
     work/measure/<commit>/     the snapshot a measurement timed
   reviews/<owner>/<repo>/<PR>/  a PR reviewed once: its inputs, worktree/ at the PR head,

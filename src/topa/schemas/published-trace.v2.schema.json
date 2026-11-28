@@ -1,0 +1,496 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$defs": {
+    "Activity": {
+      "additionalProperties": false,
+      "description": "What a published trace leaves out, counted.",
+      "properties": {
+        "think_n": {
+          "title": "Think N",
+          "type": "integer"
+        },
+        "tool_n": {
+          "title": "Tool N",
+          "type": "integer"
+        },
+        "tokens": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Tokens"
+        }
+      },
+      "required": [
+        "think_n",
+        "tool_n",
+        "tokens"
+      ],
+      "title": "Activity",
+      "type": "object"
+    },
+    "Case": {
+      "additionalProperties": false,
+      "description": "One benchmark case in one measurement; only a measured case has a time.",
+      "properties": {
+        "case_id": {
+          "title": "Case Id",
+          "type": "string"
+        },
+        "status": {
+          "enum": [
+            "measured",
+            "failed",
+            "unavailable",
+            "skipped"
+          ],
+          "title": "Status",
+          "type": "string"
+        },
+        "us": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Us"
+        },
+        "timing": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Timing"
+        },
+        "l2_flush": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "L2 Flush"
+        },
+        "bytes": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Bytes"
+        },
+        "comparators": {
+          "additionalProperties": {
+            "$ref": "#/$defs/Comparator"
+          },
+          "title": "Comparators",
+          "type": "object"
+        }
+      },
+      "required": [
+        "case_id",
+        "status",
+        "us",
+        "timing",
+        "l2_flush",
+        "bytes",
+        "comparators"
+      ],
+      "title": "Case",
+      "type": "object"
+    },
+    "Comparator": {
+      "additionalProperties": false,
+      "description": "Another implementation's time on a case, taken in the same benchmark run.",
+      "properties": {
+        "us": {
+          "title": "Us",
+          "type": "number"
+        },
+        "timing": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Timing"
+        },
+        "l2_flush": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "L2 Flush"
+        },
+        "no_ratio": {
+          "title": "No Ratio",
+          "type": "boolean"
+        },
+        "unverified": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Unverified"
+        }
+      },
+      "required": [
+        "us",
+        "timing",
+        "l2_flush",
+        "no_ratio",
+        "unverified"
+      ],
+      "title": "Comparator",
+      "type": "object"
+    },
+    "Measure": {
+      "additionalProperties": false,
+      "description": "A measurement in a trace; the DRAM floor of a case is its `bytes` over `hbm_bandwidth`.",
+      "properties": {
+        "ts": {
+          "format": "date-time",
+          "title": "Ts",
+          "type": "string"
+        },
+        "t": {
+          "const": "measure",
+          "title": "T",
+          "type": "string"
+        },
+        "title": {
+          "minLength": 1,
+          "title": "Title",
+          "type": "string"
+        },
+        "commit": {
+          "title": "Commit",
+          "type": "string"
+        },
+        "base": {
+          "title": "Base",
+          "type": "boolean"
+        },
+        "busy_card": {
+          "title": "Busy Card",
+          "type": "boolean"
+        },
+        "hbm_bandwidth": {
+          "title": "Hbm Bandwidth",
+          "type": "number"
+        },
+        "cases": {
+          "items": {
+            "$ref": "#/$defs/Case"
+          },
+          "title": "Cases",
+          "type": "array"
+        }
+      },
+      "required": [
+        "ts",
+        "t",
+        "title",
+        "commit",
+        "base",
+        "busy_card",
+        "hbm_bandwidth",
+        "cases"
+      ],
+      "title": "Measure",
+      "type": "object"
+    },
+    "PublishedFoundry": {
+      "additionalProperties": false,
+      "properties": {
+        "ts": {
+          "format": "date-time",
+          "title": "Ts",
+          "type": "string"
+        },
+        "t": {
+          "const": "foundry",
+          "title": "T",
+          "type": "string"
+        },
+        "kind": {
+          "enum": [
+            "reference",
+            "floor"
+          ],
+          "title": "Kind",
+          "type": "string"
+        },
+        "case_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Case Id"
+        },
+        "ideal_ns": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Ideal Ns"
+        },
+        "bound_by": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Bound By"
+        },
+        "ts_source": {
+          "const": "report-file",
+          "title": "Ts Source",
+          "type": "string"
+        }
+      },
+      "required": [
+        "ts",
+        "t",
+        "kind",
+        "case_id",
+        "ideal_ns",
+        "bound_by",
+        "ts_source"
+      ],
+      "title": "PublishedFoundry",
+      "type": "object"
+    },
+    "PublishedPhase": {
+      "additionalProperties": false,
+      "properties": {
+        "ts": {
+          "format": "date-time",
+          "title": "Ts",
+          "type": "string"
+        },
+        "t": {
+          "const": "phase",
+          "title": "T",
+          "type": "string"
+        },
+        "to": {
+          "title": "To",
+          "type": "string"
+        }
+      },
+      "required": [
+        "ts",
+        "t",
+        "to"
+      ],
+      "title": "PublishedPhase",
+      "type": "object"
+    },
+    "Source": {
+      "additionalProperties": false,
+      "description": "Where the round's task came from; `ref` is the wiki page's or the issue's URL.",
+      "properties": {
+        "kind": {
+          "enum": [
+            "wiki",
+            "issue",
+            "none"
+          ],
+          "title": "Kind",
+          "type": "string"
+        },
+        "ref": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Ref"
+        }
+      },
+      "required": [
+        "kind",
+        "ref"
+      ],
+      "title": "Source",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "description": "What leaves the machine: no session, and none of the agent's text except a measurement's title.",
+  "properties": {
+    "schema": {
+      "const": 2,
+      "title": "Schema",
+      "type": "integer"
+    },
+    "round": {
+      "title": "Round",
+      "type": "string"
+    },
+    "item": {
+      "anyOf": [
+        {
+          "type": "integer"
+        },
+        {
+          "type": "string"
+        }
+      ],
+      "title": "Item"
+    },
+    "op": {
+      "title": "Op",
+      "type": "string"
+    },
+    "source": {
+      "$ref": "#/$defs/Source"
+    },
+    "method": {
+      "title": "Method",
+      "type": "string"
+    },
+    "model": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "title": "Model"
+    },
+    "effort": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "title": "Effort"
+    },
+    "gpu": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "title": "Gpu"
+    },
+    "base": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "title": "Base"
+    },
+    "pr": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "title": "Pr"
+    },
+    "activity": {
+      "$ref": "#/$defs/Activity"
+    },
+    "entries": {
+      "items": {
+        "discriminator": {
+          "mapping": {
+            "foundry": "#/$defs/PublishedFoundry",
+            "measure": "#/$defs/Measure",
+            "phase": "#/$defs/PublishedPhase"
+          },
+          "propertyName": "t"
+        },
+        "oneOf": [
+          {
+            "$ref": "#/$defs/PublishedPhase"
+          },
+          {
+            "$ref": "#/$defs/PublishedFoundry"
+          },
+          {
+            "$ref": "#/$defs/Measure"
+          }
+        ]
+      },
+      "title": "Entries",
+      "type": "array"
+    }
+  },
+  "required": [
+    "schema",
+    "round",
+    "item",
+    "op",
+    "source",
+    "method",
+    "model",
+    "effort",
+    "gpu",
+    "base",
+    "pr",
+    "activity",
+    "entries"
+  ],
+  "title": "PublishedTrace",
+  "type": "object"
+}

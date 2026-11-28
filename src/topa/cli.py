@@ -110,10 +110,23 @@ def _round_trace(args: argparse.Namespace) -> int:
     # Claude Code keeps a running round's transcripts; `topa round stop` archives them into the round.
     live = _project_dir(current.dir)
     view = ledger.rounds().get(current.slug, {"round": current.slug})
-    text = json.dumps(trace.export(current.dir, view, live if live.is_dir() else current.dir / "session",
-                                   published=args.published), indent=2, ensure_ascii=False) + "\n"
-    if args.out:
-        args.out.write_text(text, encoding="utf-8")
+    return _write_trace(trace.export(current.dir, view, live if live.is_dir() else current.dir / "session"), args.out)
+
+
+def _trace_publish(args: argparse.Namespace) -> int:
+    from topa import trace
+
+    try:
+        full = json.loads(args.trace.read_text(encoding="utf-8"))
+    except (OSError, ValueError) as error:
+        raise SystemExit(f"{args.trace} is not a trace: {error}") from None
+    return _write_trace(trace.publish(full), args.out)
+
+
+def _write_trace(value: dict, out: Path | None) -> int:
+    text = json.dumps(value, indent=2, ensure_ascii=False) + "\n"
+    if out:
+        out.write_text(text, encoding="utf-8")
     else:
         sys.stdout.write(text)
     return 0
@@ -246,14 +259,13 @@ def parser() -> argparse.ArgumentParser:
     p.add_argument("round")
     p.add_argument("--rm", action="store_true", help="also remove container, worktree and checkout")
     p.set_defaults(func=_round_stop)
-    p = rounds.add_parser("measure", help="time the round's benchmark nodes and record the rows (run by the agent)")
+    p = rounds.add_parser("measure", help="time the round's benchmark nodes and record the cases (run by the agent)")
     p.add_argument("title")
     p.add_argument("--base", action="store_true", help="time the round's TileOPs base instead of HEAD")
     p.add_argument("--round", help="round slug; default: the round directory holding the cwd")
     p.set_defaults(func=_round_measure)
     p = rounds.add_parser("trace", help="the round's phases, analyses, measurements and session as one trace")
     p.add_argument("round")
-    p.add_argument("--published", action="store_true", help="keep phases, analyses and measurements only")
     p.add_argument("-o", "--out", type=Path)
     p.set_defaults(func=_round_trace)
     p = rounds.add_parser("log", help="print ledger events")
@@ -280,6 +292,13 @@ def parser() -> argparse.ArgumentParser:
     p.set_defaults(func=_review)
     p = sub.add_parser("lessons", help="review findings and knowledge entries a person can promote")
     p.set_defaults(func=_lessons)
+
+    traces = sub.add_parser("trace", help="work on a trace `topa round trace` wrote").add_subparsers(
+        dest="trace_command", required=True)
+    p = traces.add_parser("publish", help="the published trace of a full trace: no session, no agent reasons or commands")
+    p.add_argument("trace", type=Path, help="a full trace file")
+    p.add_argument("-o", "--out", type=Path)
+    p.set_defaults(func=_trace_publish)
 
     hook = sub.add_parser("hook", help="round agent hooks").add_subparsers(dest="hook_command", required=True)
     p = hook.add_parser("pre-tool-use", help="route a round's shell commands into its container")

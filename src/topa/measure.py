@@ -2,11 +2,12 @@
 
 A measurement runs the pytest nodes `bench` in `provenance.json` names for each op of the
 round, on a snapshot of one commit, and appends what the TileOPs benchmark XML says to
-`measures.jsonl` in the round directory. A row is named `<Op> <case_id>`: the op the node
-serves and the parametrized part of its test name, which TileOPs defines as the case id.
+`measures.jsonl` in the round directory, as a `schema.Measurement`. A case is named
+`<Op> <case_id>`: the op the node serves and the parametrized part of its test name, which TileOPs
+defines as the case id.
 
 Each record holds the HBM bandwidth of the TileFoundry device the `target` setting named when it
-was taken. A row's DRAM floor is its first measured `tileops_bytes` over the bandwidth of that record.
+was taken. A case's DRAM floor is its first measured `tileops_bytes` over the bandwidth of that record.
 """
 
 from __future__ import annotations
@@ -21,7 +22,7 @@ import xml.etree.ElementTree as ET
 from pathlib import Path
 from typing import Any
 
-from topa import sh
+from topa import schema, sh
 
 RECORDS = "measures.jsonl"
 SNAPSHOTS = "work/measure"
@@ -49,27 +50,27 @@ def _number(value: str | None) -> float | None:
 
 
 def read_xml(path: Path, nodes: dict[str, str]) -> list[dict[str, Any]]:
-    """The rows of the benchmark XML *path* that the nodes of *nodes*, node to op, ran; a node names a
+    """The cases of the benchmark XML *path* that the nodes of *nodes*, node to op, ran; a node names a
     test function or one parametrized test.
 
-    A row's status is `measured`, `failed`, `unavailable` (the op refuses the case) or `skipped`.
+    A case's status is `measured`, `failed`, `unavailable` (the op refuses the case) or `skipped`.
     The op the XML names must be the op the node serves.
     """
-    rows = []
-    for case in ET.parse(path).getroot().iter("testcase"):
-        test = case.get("name", "")
-        node = f"{case.get('classname', '').replace('.', '/')}.py::{test}"
+    cases = []
+    for element in ET.parse(path).getroot().iter("testcase"):
+        test = element.get("name", "")
+        node = f"{element.get('classname', '').replace('.', '/')}.py::{test}"
         op = nodes.get(node) or nodes.get(node.split("[", 1)[0])
         if op is None:
             continue
-        props = {p.get("name"): p.get("value") for p in case.iter("property")}
+        props = {p.get("name"): p.get("value") for p in element.iter("property")}
         named = props.get("op") or (props.get("ops") or "").split(",")[0]
         if named and named != op:
             raise SystemExit(f"{node} measures {named}, but `bench` lists it under {op}")
         busy = _number(props.get("tileops_device_busy_ms"))
-        if case.find("failure") is not None or case.find("error") is not None:
+        if element.find("failure") is not None or element.find("error") is not None:
             status = "failed"
-        elif case.find("skipped") is not None:
+        elif element.find("skipped") is not None:
             status = "unavailable" if "unavailable" in props else "skipped"
         else:
             status = "measured" if busy else "skipped"
@@ -82,11 +83,11 @@ def read_xml(path: Path, nodes: dict[str, str]) -> list[dict[str, Any]]:
                                     "no_ratio": props.get(f"{tag}_no_ratio") == "True",
                                     "unverified": props.get(f"{tag}_unverified") or None}
         bytes_ = _number(props.get("tileops_bytes"))
-        rows.append({"op": op, "case_id": test.partition("[")[2].removesuffix("]") or test, "status": status,
-                     "us": _us(props["tileops_device_busy_ms"]) if status == "measured" else None,
-                     "timing": props.get("tileops_timing"), "l2_flush": props.get("tileops_l2_flush"),
-                     "bytes": int(bytes_) if bytes_ else None, "comparators": comparators})
-    return rows
+        cases.append({"op": op, "case_id": test.partition("[")[2].removesuffix("]") or test, "status": status,
+                      "us": _us(props["tileops_device_busy_ms"]) if status == "measured" else None,
+                      "timing": props.get("tileops_timing"), "l2_flush": props.get("tileops_l2_flush"),
+                      "bytes": int(bytes_) if bytes_ else None, "comparators": comparators})
+    return cases
 
 
 def floor_text(floor: float) -> str:
@@ -98,23 +99,27 @@ def records(round_dir: Path) -> list[dict[str, Any]]:
     path = round_dir / RECORDS
     if not path.is_file():
         return []
-    return [json.loads(line) for line in path.read_text(encoding="utf-8").splitlines() if line.strip()]
+    lines = [line for line in path.read_text(encoding="utf-8").splitlines() if line.strip()]
+    try:
+        return [schema.checked(schema.Measurement, json.loads(line)) for line in lines]
+    except SystemExit as error:
+        raise SystemExit(f"{path}: {error}") from None
 
 
 def floors(found: list[dict[str, Any]]) -> dict[str, float]:
-    """Each row's DRAM floor in microseconds, from its first measured byte count."""
+    """Each case's DRAM floor in microseconds, from its first measured byte count."""
     result: dict[str, float] = {}
     for record in found:
-        for row in record["rows"]:
-            key = name(row["op"], row["case_id"])
-            if key not in result and row["status"] == "measured" and row.get("bytes"):
-                result[key] = row["bytes"] / record["hbm_bandwidth"] * 1e6
+        for case in record["cases"]:
+            key = name(case["op"], case["case_id"])
+            if key not in result and case["status"] == "measured" and case.get("bytes"):
+                result[key] = case["bytes"] / record["hbm_bandwidth"] * 1e6
     return result
 
 
 def names(found: list[dict[str, Any]]) -> tuple[str, ...]:
-    """Every row of the latest record, in its order."""
-    return tuple(name(row["op"], row["case_id"]) for row in found[-1]["rows"]) if found else ()
+    """Every case of the latest record, in its order."""
+    return tuple(name(case["op"], case["case_id"]) for case in found[-1]["cases"]) if found else ()
 
 
 def hbm_bandwidth(foundry_source: Path, target: str | None) -> float:
@@ -150,7 +155,7 @@ def bench_nodes(provenance: dict[str, Any], ops: set[str]) -> dict[str, str]:
 def run(meta: dict[str, Any], round_dir: Path, ops: set[str], title: str, target: str | None,
         workloads: tuple[str, ...], *, base: bool = False) -> dict[str, Any]:
     """Measure the base or HEAD of the round's worktree, and append the record; every one of
-    *workloads* must be a row of it."""
+    *workloads* must be a case of it."""
     bandwidth = hbm_bandwidth(Path(meta["foundry_source"]), target)
     provenance = json.loads((round_dir / "provenance.json").read_text(encoding="utf-8")) \
         if (round_dir / "provenance.json").is_file() else {}
@@ -177,29 +182,30 @@ def run(meta: dict[str, Any], round_dir: Path, ops: set[str], title: str, target
     output = sh.run(["ssh", "-T", meta["alias"], command], check=False).splitlines()
     if not xml.is_file():
         raise SystemExit(f"the benchmark wrote no {xml}:\n" + "\n".join(output[-20:]))
-    rows = read_xml(xml, nodes)
-    if not rows:
+    cases = read_xml(xml, nodes)
+    if not cases:
         raise SystemExit(f"{xml} holds no testcase of the `bench` nodes")
-    absent = sorted(set(workloads) - {name(row["op"], row["case_id"]) for row in rows})
+    absent = sorted(set(workloads) - {name(case["op"], case["case_id"]) for case in cases})
     if absent:
-        raise SystemExit(f"{xml} has no row {', '.join(absent)}; check `bench` and the rows' names")
-    record = {"ts": datetime.datetime.now(datetime.timezone.utc).astimezone().isoformat(timespec="seconds"),
-              "title": " ".join(title.split()), "commit": commit, "base": base,
-              "xml": str(xml.relative_to(round_dir)), "gpu": output[-1] if output else None,
-              "busy_card": busy.exists(), "target": target, "hbm_bandwidth": bandwidth, "rows": rows}
+        raise SystemExit(f"{xml} has no case {', '.join(absent)}; check `bench` and the cases' names")
+    record = schema.checked(schema.Measurement, {
+        "ts": datetime.datetime.now(datetime.timezone.utc).astimezone().isoformat(timespec="seconds"),
+        "title": " ".join(title.split()), "commit": commit, "base": base,
+        "xml": str(xml.relative_to(round_dir)), "gpu": output[-1] if output else None,
+        "busy_card": busy.exists(), "target": target, "hbm_bandwidth": bandwidth, "cases": cases})
     with (round_dir / RECORDS).open("a", encoding="utf-8") as handle:
         handle.write(json.dumps(record) + "\n")
     return record
 
 
 def render(record: dict[str, Any], floor: dict[str, float]) -> str:
-    """The record as a table, with each row's DRAM floor; the Performance table copies the floors."""
+    """The record as a table, with each case's DRAM floor; the Performance table copies the floors."""
     lines = [f"{record['title']} at {record['commit'][:12]}"
              + (", timed on a busy card" if record["busy_card"] else ""), "",
              "| Workload | status | TileOps (us) | DRAM floor (us) |", "| --- | --- | ---: | ---: |"]
-    for row in record["rows"]:
-        key = name(row["op"], row["case_id"])
-        us = f"{row['us']:.3f}" if row["us"] else ""
+    for case in record["cases"]:
+        key = name(case["op"], case["case_id"])
+        us = f"{case['us']:.3f}" if case["us"] else ""
         least = floor_text(floor[key]) if key in floor else ""
-        lines.append(f"| `{key}` | {row['status']} | {us} | {least} |")
+        lines.append(f"| `{key}` | {case['status']} | {us} | {least} |")
     return "\n".join(lines)

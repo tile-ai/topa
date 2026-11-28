@@ -8,8 +8,9 @@
 | `topa round start <Op> [--issue <N>]` | start a perf round on an op of the queue, or a new-op round on a spec-only op |
 | `topa round start --issue <N>` | start a perf, new-op, extend or general round on a TileOPs issue and assign it to you |
 | `topa round transition <state> --reason "..."` | move a TileFoundry round along its state graph (run by the agent) |
-| `topa round measure "<title>" [--base]` | time the round's benchmark nodes on HEAD or the base, record the rows in `measures.jsonl` and print their DRAM floors (run by the agent) |
-| `topa round trace <slug> [--published] [-o <file>]` | the round's phases, TileFoundry analyses, measurements and session as one trace; `--published` keeps the first three |
+| `topa round measure "<title>" [--base]` | time the round's benchmark nodes on HEAD or the base, record the cases in `measures.jsonl` and print their DRAM floors (run by the agent) |
+| `topa round trace <slug> [-o <file>]` | the round's phases, TileFoundry analyses, measurements and session as one full trace; a round's trace holds one op |
+| `topa trace publish <trace> [-o <file>]` | the published trace of a full trace: no session, and no agent reasons or commands |
 | `topa round say <slug> "..."` | message the round's agent |
 | `topa round status` | every round, its state, its agent and its PR |
 | `topa round log [<slug>]` | ledger events |

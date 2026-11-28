@@ -13,7 +13,22 @@ from collections import Counter
 from pathlib import Path
 from unittest import mock
 
-from topa import config, gate, gpu, history, ledger, measure, pr, review, review_loop, setup_cmd, states, trace, wiki
+from topa import (
+    config,
+    gate,
+    gpu,
+    history,
+    ledger,
+    measure,
+    pr,
+    review,
+    review_loop,
+    schema,
+    setup_cmd,
+    states,
+    trace,
+    wiki,
+)
 from topa.container import foreign_files
 from topa.hook import decide
 from topa.round import (
@@ -44,6 +59,8 @@ PAGE = Path(__file__).parent / "fixtures" / "Perf-Tracker-2026-11-06.md"
 PAGE_URL = "https://github.com/tile-ai/TileOPs/wiki/Perf-Tracker-2026-11-06"
 # An HBM bandwidth of one byte per microsecond: a row's DRAM floor in microseconds is its byte count.
 BANDWIDTH = 1e6
+CASE = {"op": "AFwdOp", "case_id": "llama-float16", "status": "measured", "us": 2.0, "timing": "cupti",
+        "l2_flush": "f", "bytes": 4800, "comparators": {}}
 
 
 def defaults(**changes) -> config.Config:
@@ -169,12 +186,12 @@ class GateTests(unittest.TestCase):
         return gate.validate_round(self.round, self.repo, workloads=self.workloads, measured=self.measured)
 
     def measure(self, *names: str, floor: float = 1) -> None:
-        """One measurement of the rows *names*, each with a DRAM floor of *floor* us."""
-        rows = [{"op": name.split(" ")[0], "case_id": name.split(" ", 1)[1], "status": "measured", "us": 1.0,
-                 "timing": "cupti", "l2_flush": "f", "bytes": floor, "comparators": {}} for name in names]
+        """One measurement of the cases *names*, each with a DRAM floor of *floor* us."""
+        cases = [{"op": name.split(" ")[0], "case_id": name.split(" ", 1)[1], "status": "measured", "us": 1.0,
+                 "timing": "cupti", "l2_flush": "f", "bytes": 1, "comparators": {}} for name in names]
         (self.round / measure.RECORDS).write_text(json.dumps({
             "ts": "2026-11-22T00:00:00+00:00", "title": "t", "commit": "c" * 40, "base": False, "xml": "x",
-            "gpu": None, "busy_card": False, "target": "t", "hbm_bandwidth": BANDWIDTH, "rows": rows}) + "\n")
+            "gpu": None, "busy_card": False, "target": "t", "hbm_bandwidth": BANDWIDTH / floor, "cases": cases}) + "\n")
 
     def write_provenance(self) -> None:
         (self.round / "provenance.json").write_text(json.dumps(self.provenance))
@@ -1305,16 +1322,16 @@ class MeasureTests(unittest.TestCase):
         self.addCleanup(tmp.cleanup)
         self.root = Path(tmp.name)
 
-    def test_the_xml_gives_each_row_of_the_listed_nodes_its_status_times_and_comparators(self) -> None:
+    def test_the_xml_gives_each_case_of_the_listed_nodes_its_status_times_and_comparators(self) -> None:
         path = self.root / "b.xml"
         path.write_text(BENCH_XML)
-        rows = measure.read_xml(path, NODES)
-        self.assertEqual([(r["case_id"], r["status"], r["us"]) for r in rows],
+        cases = measure.read_xml(path, NODES)
+        self.assertEqual([(c["case_id"], c["status"], c["us"]) for c in cases],
                          [("llama-float16", "measured", 2.0), ("qwen-bfloat16", "unavailable", None),
                           ("broken-float32", "failed", None)])
-        self.assertEqual(rows[0]["comparators"], {"quack": {"us": 3.0, "timing": "cupti", "l2_flush": None,
-                                                            "no_ratio": True, "unverified": "noncomparable: adds the bias"}})
-        self.assertEqual((rows[0]["bytes"], rows[0]["l2_flush"]), (4800, "triton-read-2x-l2-held"))
+        self.assertEqual(cases[0]["comparators"], {"quack": {"us": 3.0, "timing": "cupti", "l2_flush": None,
+                                                             "no_ratio": True, "unverified": "noncomparable: adds the bias"}})
+        self.assertEqual((cases[0]["bytes"], cases[0]["l2_flush"]), (4800, "triton-read-2x-l2-held"))
         # Milliseconds to microseconds keeps the XML's digits: 0.0117435 * 1000 is 11.743500000000001 in floats.
         self.assertEqual(measure._us("0.0117435"), 11.7435)
         one = measure.read_xml(path, {"benchmarks/ops/bench_a.py::test_a_bench[qwen-bfloat16]": "AFwdOp"})
@@ -1322,10 +1339,10 @@ class MeasureTests(unittest.TestCase):
         with self.assertRaisesRegex(SystemExit, "measures OtherFwdOp, but `bench` lists it under AFwdOp"):
             measure.read_xml(path, {**NODES, "benchmarks/ops/bench_a.py::test_other_bench": "AFwdOp"})
 
-    def test_a_row_s_floor_is_its_first_measured_byte_count_over_the_bandwidth(self) -> None:
-        def record(bandwidth, *rows):
+    def test_a_case_s_floor_is_its_first_measured_byte_count_over_the_bandwidth(self) -> None:
+        def record(bandwidth, *cases):
             return {"hbm_bandwidth": bandwidth,
-                    "rows": [{"op": "AFwdOp", "case_id": c, "status": s, "bytes": b} for c, s, b in rows]}
+                    "cases": [{"op": "AFwdOp", "case_id": c, "status": s, "bytes": b} for c, s, b in cases]}
         found = [record(2e6, ("a", "unavailable", None), ("b", "measured", 10)),
                  record(4e6, ("a", "measured", 4), ("b", "measured", 20))]
         self.assertEqual(measure.floors(found), {"AFwdOp b": 5.0, "AFwdOp a": 1.0})
@@ -1379,7 +1396,7 @@ class MeasureTests(unittest.TestCase):
         with mock.patch("topa.measure.sh.run", side_effect=run):
             record = measure.run(meta, round_dir, {"AFwdOp"}, "  first\nkernel ", "nvidia.h", ("AFwdOp llama-float16",),
                                  base=True)
-        self.assertEqual((record["title"], record["base"], record["gpu"], record["busy_card"], len(record["rows"])),
+        self.assertEqual((record["title"], record["base"], record["gpu"], record["busy_card"], len(record["cases"])),
                          ("first kernel", True, "NVIDIA H200", True, 3))
         self.assertTrue((round_dir / measure.SNAPSHOTS / record["commit"][:12]).is_dir())
         self.assertEqual(measure.records(round_dir), [record])
@@ -1391,7 +1408,7 @@ class MeasureTests(unittest.TestCase):
             measure.run(meta, round_dir, set(), "t", "nvidia.h", ())
         (round_dir / "provenance.json").write_text(json.dumps({"bench": {"AFwdOp": list(NODES)}}))
         with mock.patch("topa.measure.sh.run", side_effect=run), \
-                self.assertRaisesRegex(SystemExit, "has no row AFwdOp qwen-float16"):
+                self.assertRaisesRegex(SystemExit, "has no case AFwdOp qwen-float16"):
             measure.run(meta, round_dir, set(), "t", "nvidia.h", ("AFwdOp qwen-float16",))
         self.assertEqual(len(measure.records(round_dir)), 1)
 
@@ -1401,7 +1418,7 @@ class MeasureTests(unittest.TestCase):
 
 
 class RecordTests(unittest.TestCase):
-    """`topa round trace` on a wiki queue round."""
+    """`topa round trace` and `topa trace publish` on a wiki queue round."""
 
     def setUp(self) -> None:
         tmp = tempfile.TemporaryDirectory()
@@ -1416,8 +1433,6 @@ class RecordTests(unittest.TestCase):
         self.meta = {"round": "afwd-r1", "kind": "perf", "op": "AFwdOp", "wiki": PAGE_URL,
                      "workloads": ["llama-float16"], "model": "m", "effort": "high", "tileops_base": "b" * 40}
         (self.dir / "round.json").write_text(json.dumps(self.meta))
-
-    def test_the_trace_orders_phases_analyses_measurements_and_the_session(self) -> None:
         ledger.append("create", round="afwd-r1", phase="REQ")
         ledger.append("transition", round="afwd-r1", **{"from": "REQ", "to": "HIR", "reason": "classified"})
         (self.dir / "e/floor.txt").write_text("# roofline ideal-ns=44035 bound-by=memory\n")
@@ -1426,12 +1441,9 @@ class RecordTests(unittest.TestCase):
         (self.dir / "provenance.json").write_text(json.dumps({
             "reference_check": {"command": "tilefoundry check", "report": "e/check.json"},
             "floor": [{"workload": "AFwdOp llama-float16", "command": "tilefoundry analyze", "report": "e/floor.txt"}]}))
-        row = {"op": "AFwdOp", "case_id": "llama-float16", "status": "measured", "us": 2.0, "bytes": 4800}
         for base, ts in ((True, "2000-01-01T00:00:00+00:00"), (False, "2100-01-01T00:00:00+00:00")):
             with (self.dir / measure.RECORDS).open("a") as handle:
-                handle.write(json.dumps({"ts": ts, "title": "t", "commit": "c" * 40, "base": base, "xml": "x",
-                                         "gpu": "NVIDIA H200", "busy_card": False, "target": "t",
-                                         "hbm_bandwidth": 4.8e9, "rows": [row]}) + "\n")
+                handle.write(json.dumps(self.record(base, ts)) + "\n")
         session = self.dir / "session" / "s" / "subagents"
         session.mkdir(parents=True)
         message = {"id": "m1", "usage": {"output_tokens": 5}, "content": [
@@ -1440,29 +1452,90 @@ class RecordTests(unittest.TestCase):
             {"type": "assistant", "timestamp": "2050-01-01T00:00:00Z", "message": message},
             {"type": "assistant", "timestamp": "2050-01-01T00:00:01Z", "message": message},
             {"type": "user", "timestamp": "2050-01-01T00:00:02Z"})) + "\n")
-        view = ledger.rounds()["afwd-r1"]
-        full = trace.export(self.dir, view, self.dir / "session")
-        self.assertEqual((full["source"], full["ops"], full["method"], full["gpu"]),
-                         ({"kind": "wiki", "ref": PAGE_URL}, ["AFwdOp"], "foundry", "NVIDIA H200"))
-        self.assertEqual(full["refs"][0]["dram_floor_us"], 1.0)
+
+    @staticmethod
+    def record(base: bool, ts: str, cases: str = "cases") -> dict:
+        return {"ts": ts, "title": "one vector per thread", "commit": "c" * 40, "base": base, "xml": "x",
+                "gpu": "NVIDIA H200", "busy_card": False, "target": "t", "hbm_bandwidth": 4.8e9, cases: [CASE]}
+
+    def export(self) -> dict:
+        return trace.export(self.dir, ledger.rounds()["afwd-r1"], self.dir / "session")
+
+    def test_the_trace_orders_phases_analyses_measurements_and_the_session(self) -> None:
+        full = self.export()
+        self.assertEqual([full[k] for k in ("schema", "item", "op", "source", "method", "gpu", "base", "tokens")],
+                         [2, "AFwdOp", "AFwdOp", {"kind": "wiki", "ref": PAGE_URL}, "foundry", "NVIDIA H200", "c" * 40, 5])
+        self.assertFalse({"refs", "ops"} & set(full))
         kinds = [e["t"] for e in full["entries"]]
         self.assertEqual(kinds[0], "measure")
         self.assertEqual(kinds[-1], "measure")
         self.assertEqual(Counter(kinds), Counter({"phase": 2, "foundry": 2, "measure": 2, "think": 2, "tool": 2}))
+        # A measurement carries what the DRAM floor needs, and names its cases by case id alone: the trace holds one op.
+        first = full["entries"][0]
+        self.assertEqual((first["base"], first["hbm_bandwidth"], first["title"]), (True, 4.8e9, "one vector per thread"))
+        self.assertEqual(first["cases"], [{k: v for k, v in CASE.items() if k != "op"}])
         floor = next(e for e in full["entries"] if e["t"] == "foundry" and e["kind"] == "floor")
-        self.assertEqual((floor["op"], floor["case_id"], floor["ideal_ns"], floor["bound_by"], floor["ts_source"]),
-                         ("AFwdOp", "llama-float16", 44035, "memory", "report-file"))
+        self.assertEqual((floor["case_id"], floor["ideal_ns"], floor["bound_by"], floor["ts_source"]),
+                         ("llama-float16", 44035, "memory", "report-file"))
         self.assertIn({"ideal_ns": 7, "bound_by": "compute"},
                       [{k: e[k] for k in ("ideal_ns", "bound_by")} for e in full["entries"] if e.get("kind") == "reference"])
-        published = trace.export(self.dir, view, self.dir / "session", published=True)
+
+    def test_a_round_on_an_issue_is_the_issue_s_item_and_takes_its_op_from_bench(self) -> None:
+        del self.meta["op"], self.meta["wiki"]
+        (self.dir / "round.json").write_text(json.dumps({**self.meta, "issue": 7, "issue_url": "https://x/issues/7"}))
+        (self.dir / "provenance.json").write_text(json.dumps({"bench": {"AFwdOp": ["b.py::test_a"]}}))
+        full = self.export()
+        self.assertEqual((full["item"], full["op"], full["source"]),
+                         (7, "AFwdOp", {"kind": "issue", "ref": "https://x/issues/7"}))
+
+    def test_a_trace_holds_one_op(self) -> None:
+        (self.dir / "round.json").write_text(json.dumps({**self.meta, "kind": "extend", "ops": ["BFwdOp"]}))
+        with self.assertRaisesRegex(SystemExit, "a trace holds one op; afwd-r1 works AFwdOp, BFwdOp"):
+            self.export()
+
+    def test_a_record_that_is_not_a_measurement_refuses_when_read(self) -> None:
+        (self.dir / measure.RECORDS).write_text(json.dumps(self.record(True, "2000-01-01T00:00:00+00:00", "rows")) + "\n")
+        with self.assertRaisesRegex(SystemExit, r"measures\.jsonl: not a Measurement record:\n(.|\n)*rows: Extra inputs"):
+            self.export()
+
+    def test_publishing_drops_the_session_and_the_agent_s_reasons_and_commands(self) -> None:
+        full = self.export()
+        published = trace.publish(full)
         self.assertEqual({e["t"] for e in published["entries"]}, {"phase", "foundry", "measure"})
-        self.assertFalse(any({"command", "reason", "title"} & set(e) for e in published["entries"]))
+        self.assertFalse(any({"command", "reason"} & set(e) for e in published["entries"]))
+        self.assertEqual({e["title"] for e in published["entries"] if e["t"] == "measure"}, {"one vector per thread"})
         self.assertEqual(published["activity"], {"think_n": 2, "tool_n": 2, "tokens": 5})
-        # Only a measurement of the base gives a reference time; a row the base lacks is unavailable there.
-        (self.dir / measure.RECORDS).write_text((self.dir / measure.RECORDS).read_text().splitlines()[1] + "\n")
-        self.assertEqual(trace.export(self.dir, view, self.dir / "session")["refs"],
-                         [{"op": "AFwdOp", "case_id": "llama-float16", "status": "unavailable", "us": None,
-                           "dram_floor_us": 1.0}])
+        self.assertNotIn("tokens", published)
+        self.assertEqual({k: published[k] for k in ("schema", "round", "item", "op", "pr")},
+                         {k: full[k] for k in ("schema", "round", "item", "op", "pr")})
+        # Publishing reads a trace file, so it refuses what is not a full trace.
+        with self.assertRaisesRegex(SystemExit, "not a Trace record"):
+            trace.publish(published)
+        with self.assertRaisesRegex(SystemExit, "not a Trace record"):
+            trace.publish({**full, "refs": []})
+
+
+class SchemaTests(unittest.TestCase):
+    def test_the_schema_files_are_the_classes(self) -> None:
+        self.assertEqual(sorted(p.name for p in schema.SCHEMAS.iterdir()), sorted(schema.FILES))
+        for name, form in schema.FILES.items():
+            self.assertEqual((schema.SCHEMAS / name).read_text(), schema.json_schema(form),
+                             f"{name} is stale: run `python -m topa.schema`")
+
+    def test_a_record_that_does_not_fit_its_format_refuses(self) -> None:
+        record = RecordTests.record(False, "2100-01-01T00:00:00+00:00")
+        self.assertEqual(schema.checked(schema.Measurement, record), record)
+        for why, bad in {
+            "title": {**record, "title": ""},
+            "ts": {**record, "ts": "2100-01-01T00:00:00"},
+            "rows": {**record, "rows": []},
+            "cases.0: .*a measured case has `us`": {**record, "cases": [{**CASE, "us": None}]},
+            "cases.0.status": {**record, "cases": [{**CASE, "status": "fast"}]},
+            "cases.0.op": {**record, "cases": [{k: v for k, v in CASE.items() if k != "op"}]},
+        }.items():
+            with self.subTest(why), self.assertRaisesRegex(SystemExit, f"not a Measurement record:\n(.|\n)*{why}"):
+                schema.checked(schema.Measurement, bad)
+
 
 if __name__ == "__main__":
     unittest.main()

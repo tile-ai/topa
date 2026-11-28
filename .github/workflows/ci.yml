@@ -38,7 +38,7 @@ jobs:
           from pathlib import Path
 
           installed = Path(str(files("topa")))
-          tracked = subprocess.run(["git", "ls-files", "-z", "src/topa/kit", "src/topa/knowledge"],
+          tracked = subprocess.run(["git", "ls-files", "-z", "src/topa/kit", "src/topa/knowledge", "src/topa/schemas"],
                                    check=True, capture_output=True, text=True).stdout.split("\0")
           missing = [p for p in tracked if p and not (installed / Path(p).relative_to("src/topa")).is_file()]
           assert not missing, f"missing from the installed package: {missing}"
