@@ -188,10 +188,10 @@ class GateTests(unittest.TestCase):
     def measure(self, *names: str, floor: float = 1) -> None:
         """One measurement of the cases *names*, each with a DRAM floor of *floor* us."""
         cases = [{"op": name.split(" ")[0], "case_id": name.split(" ", 1)[1], "status": "measured", "us": 1.0,
-                 "timing": "cupti", "l2_flush": "f", "bytes": floor, "comparators": {}} for name in names]
+                 "timing": "cupti", "l2_flush": "f", "bytes": 1, "comparators": {}} for name in names]
         (self.round / measure.RECORDS).write_text(json.dumps({
             "ts": "2026-11-22T00:00:00+00:00", "title": "t", "commit": "c" * 40, "base": False, "xml": "x",
-            "gpu": None, "busy_card": False, "target": "t", "hbm_bandwidth": BANDWIDTH, "cases": cases}) + "\n")
+            "gpu": None, "busy_card": False, "target": "t", "hbm_bandwidth": BANDWIDTH / floor, "cases": cases}) + "\n")
 
     def write_provenance(self) -> None:
         (self.round / "provenance.json").write_text(json.dumps(self.provenance))
@@ -1493,10 +1493,10 @@ class RecordTests(unittest.TestCase):
         with self.assertRaisesRegex(SystemExit, "a trace holds one op; afwd-r1 works AFwdOp, BFwdOp"):
             self.export()
 
-    def test_a_record_from_before_the_cases_had_their_name_still_reads(self) -> None:
+    def test_a_record_that_is_not_a_measurement_refuses_when_read(self) -> None:
         (self.dir / measure.RECORDS).write_text(json.dumps(self.record(True, "2000-01-01T00:00:00+00:00", "rows")) + "\n")
-        self.assertEqual(measure.records(self.dir)[0]["cases"], [CASE])
-        self.assertEqual(len(self.export()["entries"][0]["cases"]), 1)
+        with self.assertRaisesRegex(SystemExit, r"measures\.jsonl: not a Measurement record:\n(.|\n)*rows: Extra inputs"):
+            self.export()
 
     def test_publishing_drops_the_session_and_the_agent_s_reasons_and_commands(self) -> None:
         full = self.export()

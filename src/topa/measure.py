@@ -99,12 +99,11 @@ def records(round_dir: Path) -> list[dict[str, Any]]:
     path = round_dir / RECORDS
     if not path.is_file():
         return []
-    found = [json.loads(line) for line in path.read_text(encoding="utf-8").splitlines() if line.strip()]
-    for record in found:
-        # A record written before the cases had their name.
-        if "rows" in record:
-            record["cases"] = record.pop("rows")
-    return found
+    lines = [line for line in path.read_text(encoding="utf-8").splitlines() if line.strip()]
+    try:
+        return [schema.checked(schema.Measurement, json.loads(line)) for line in lines]
+    except SystemExit as error:
+        raise SystemExit(f"{path}: {error}") from None
 
 
 def floors(found: list[dict[str, Any]]) -> dict[str, float]:
